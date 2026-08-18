@@ -102,7 +102,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="TTB Label Verification API",
     version=SERVICE_VERSION,
-    description="Fixture-backed contract API for the connected verification vertical slice.",
+    description="Authenticated label-verification API with local OCR and optional LLM vision.",
     lifespan=lifespan,
 )
 app.add_middleware(

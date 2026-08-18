@@ -16,6 +16,7 @@ Python API, Tesseract OCR, and a persistent SQLite/artwork volume on one EC2
 instance.
 
 - [Verification input contract](docs/VERIFICATION_INPUT_CONTRACT.md)
+- [Application architecture](docs/ARCHITECTURE.md)
 - [Public catalog integration](docs/public-s3-catalog.md)
 
 See [CURATION.md](CURATION.md) for the exact repository boundary. Downloaded

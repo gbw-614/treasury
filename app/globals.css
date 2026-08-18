@@ -46,14 +46,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   height: 62px; flex: 0 0 62px; display: flex; align-items: center; padding: 0 20px;
   color: #f9f6ef; background: var(--navy); border-bottom: 3px solid var(--brass);
 }
-.local-indicator {
-  display: flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid #465869;
-  color: #c7d3dc; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
-}
-.local-indicator svg { color: #67c096; }
 .eyebrow { color: var(--brass); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .17em; }
 
-.artwork-pane, .evidence-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.artwork-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .artwork-pane { background: #2b3034; border-right: 1px solid #151a1e; }
 .pane-toolbar { height: 45px; flex: 0 0 45px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; background: #20262b; color: #d4d9dc; border-bottom: 1px solid #11171b; }
 .panel-tabs { display: flex; align-items: center; gap: 4px; }
@@ -101,7 +96,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .verify-console-brand:hover { color: white; }
 .verify-product-title { display: flex; align-items: center; gap: 10px; color: white; }
 .verify-product-title strong { font-size: 17px; font-weight: 650; text-transform: uppercase; letter-spacing: .055em; }
-.verify-topbar .local-indicator { justify-self: end; padding: 0; border: 0; background: transparent; }
 .topbar-user { justify-self: end; display: flex; align-items: center; gap: 12px; color: #dce6ed; font-size: 11px; }
 .topbar-user span, .topbar-user button { display: flex; align-items: center; gap: 6px; }
 .topbar-user button { padding: 7px 9px; color: #dce6ed; border: 1px solid #52697a; border-radius: 3px; background: transparent; font-size: 9px; font-weight: 700; text-transform: uppercase; cursor: pointer; }
@@ -522,14 +516,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 @media (max-width: 1180px) {
-  .app-body { grid-template-columns: 250px minmax(0, 1fr); }
-  .gt-body { grid-template-columns: 250px minmax(0, 1fr); }
-  .case-header { grid-template-columns: 1fr auto; }
-  .case-meta { display: none; }
-  .gt-case-header { grid-template-columns: 1fr auto; }
-  .gt-draft-source { display: none; }
-  .workbench { grid-template-columns: minmax(360px, .8fr) minmax(500px, 1.2fr); }
-  .run-summary { display: none; }
   .verify-body { grid-template-columns: 250px minmax(0, 1fr); }
   .verify-body:has(.verify-intake.has-result) { grid-template-columns: 230px minmax(0, 1fr); }
   .verify-workbench { grid-template-columns: minmax(360px, .94fr) minmax(450px, 1.06fr); }
@@ -538,28 +524,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 860px) {
   body { overflow: auto; }
   .app-shell { height: auto; min-height: 100vh; }
-  .app-body { display: block; }
-  .gt-body { display: block; }
-  .queue-pane { max-height: 340px; border-right: 0; border-bottom: 1px solid var(--line-dark); }
-  .case-list { display: flex; gap: 6px; overflow-x: auto; }
-  .case-card { min-width: 230px; }
-  .workbench { display: block; }
   .artwork-pane { height: 65vh; border-right: 0; }
-  .evidence-pane { min-height: 700px; }
-  .gt-annotation-pane { min-height: 760px; }
-  .gt-review-footer { position: sticky; bottom: 0; z-index: 4; flex-wrap: wrap; height: auto; }
-  .gt-annotation-toolbar .key-hint { display: none; }
-  .gt-field-inputs { grid-template-columns: 1fr; }
-  .gt-awaiting-meta { grid-template-columns: 1fr; }
   .topbar { position: sticky; top: 0; z-index: 5; }
-  .local-indicator { margin-left: auto; }
-  .leaderboard-page { min-height: calc(100vh - 62px); }
-  .leaderboard-hero { grid-template-columns: 1fr; gap: 15px; padding: 22px 18px; }
-  .leaderboard-scroll { overflow: visible; padding: 14px 10px 25px; }
-  .leaderboard-columns { display: block; }
-  .leaderboard-columns .leaderboard-section { margin-bottom: 14px; }
-  .dimension-tabs { width: 100%; overflow-x: auto; }
-  .dimension-tabs button { flex: 0 0 auto; }
   .verify-shell { height: auto; min-height: 100vh; }
   .verify-body { display: block; }
   .verify-intake { overflow: visible; border-right: 0; border-bottom: 1px solid var(--line-dark); }

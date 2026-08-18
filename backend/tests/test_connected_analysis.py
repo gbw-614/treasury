@@ -17,9 +17,9 @@ from app.schemas import (
 from app.services import case_store, recognition_cache
 from app.services.connected_analysis import run_connected_analysis
 from app.services.image_validation import validate_image
-from app.services.mock_analysis import CANONICAL_WARNING_BODY, build_mock_analysis
 from app.services.openrouter_vision import _normalized_box_to_pixels
 from app.services.quote_alignment import align_quote
+from tests.analysis_fixtures import CANONICAL_WARNING_BODY, build_mock_analysis
 
 
 @pytest.fixture(autouse=True)

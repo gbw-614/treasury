@@ -180,7 +180,6 @@ def _union_box(boxes: tuple[BoundingBox, ...]) -> BoundingBox | None:
         height=bottom - top,
     )
 
-
 def _rule(
     *,
     field_key: FieldKey,

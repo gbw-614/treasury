@@ -454,12 +454,12 @@ export default function VerifyPage() {
     return analysis.panels.map((panel, index) => {
       const stored = storedPanels.find((candidate) => candidate?.panelId === panel.panelId) ?? storedPanels[index];
       return {
-      id: panel.panelId,
-      file: stored?.file ?? `Panel ${index + 1}`,
-      url: stored ? `${API_URL}${stored.url}` : previewUrl,
-      width: panel.width,
-      height: panel.height,
-      format: panel.detectedMimeType.split("/")[1],
+        id: panel.panelId,
+        file: stored?.file ?? `Panel ${index + 1}`,
+        url: stored ? `${API_URL}${stored.url}` : previewUrl,
+        width: panel.width,
+        height: panel.height,
+        format: panel.detectedMimeType.split("/")[1],
       };
     });
   }, [activeCase, analysis, previewUrl]);
@@ -516,6 +516,13 @@ export default function VerifyPage() {
   };
   const activeClaimedByAnotherReviewer = Boolean(
     activeCase?.assignedToUserId && activeCase.assignedToUserId !== currentUser?.userId,
+  );
+  const reviewableCaseCount = useMemo(
+    () => queueCases.filter(
+      (item) => needsHumanReview(item)
+        && (!item.assignedToUserId || item.assignedToUserId === currentUser?.userId),
+    ).length,
+    [currentUser?.userId, queueCases],
   );
 
   const inspectableOcrIds = (rule: RuleResult) =>
@@ -1016,9 +1023,7 @@ export default function VerifyPage() {
         </button>
         <button className={activeTab === "review" ? "active" : ""} type="button" onClick={() => void openNextReview(false)}>
           <ScanText size={17} /> Review
-          {queueCases.filter((item) => needsHumanReview(item) && (!item.assignedToUserId || item.assignedToUserId === currentUser.userId)).length > 0 && (
-            <em>{queueCases.filter((item) => needsHumanReview(item) && (!item.assignedToUserId || item.assignedToUserId === currentUser.userId)).length}</em>
-          )}
+          {reviewableCaseCount > 0 && <em>{reviewableCaseCount}</em>}
         </button>
         <button className={activeTab === "settings" ? "active" : ""} type="button" onClick={openSettings}>
           <Settings2 size={17} /> Settings

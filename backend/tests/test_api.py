@@ -22,8 +22,8 @@ from app.schemas import (
 from app.services import auth_store, case_store, s3_catalog
 from app.services.blind_request import build_blind_vision_request
 from app.services.image_validation import validate_image
-from app.services.mock_analysis import CANONICAL_WARNING_BODY, build_mock_analysis
 from scripts.export_contract_schemas import CONTRACTS, render_schema
+from tests.analysis_fixtures import CANONICAL_WARNING_BODY, build_mock_analysis
 
 client = TestClient(app)
 

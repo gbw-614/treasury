@@ -18,8 +18,8 @@ assembled from the larger research workspace using an explicit allowlist.
   rule-result, and response contracts used by the application.
 - `infra/` — Terraform for the existing single-instance AWS deployment and its
   separately bootstrapped encrypted state bucket.
-- `docs/` — the verification input contract and public-catalog integration
-  contract.
+- `docs/` — the application architecture, verification input contract, and
+  public-catalog integration contract.
 - Root Docker, Compose, Node, TypeScript, Vite, lint, and environment-example
   files required to build and run the application.
 
