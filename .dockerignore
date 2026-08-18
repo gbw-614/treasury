@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+node_modules
+dist
+backend/.venv
+backend/.pytest_cache
+backend/.ruff_cache
+backend/data
+**/__pycache__
+**/*.pyc
+.DS_Store
+CURATION.md

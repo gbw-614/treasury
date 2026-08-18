@@ -1,0 +1,131 @@
+{
+  "$defs": {
+    "AutomatedStatus": {
+      "enum": [
+        "matches",
+        "discrepancy",
+        "review",
+        "does_not_apply"
+      ],
+      "title": "AutomatedStatus",
+      "type": "string"
+    },
+    "FieldKey": {
+      "enum": [
+        "brand_name",
+        "class_type",
+        "alcohol_content",
+        "proof",
+        "government_warning_heading",
+        "government_warning_body"
+      ],
+      "title": "FieldKey",
+      "type": "string"
+    }
+  },
+  "$id": "https://schemas.treasury.local/rule-result-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "applicable": {
+      "title": "Applicable",
+      "type": "boolean"
+    },
+    "automatedStatus": {
+      "$ref": "#/$defs/AutomatedStatus"
+    },
+    "detectedValue": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Detectedvalue"
+    },
+    "evidenceQuote": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Evidencequote"
+    },
+    "expectedValue": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Expectedvalue"
+    },
+    "explanation": {
+      "title": "Explanation",
+      "type": "string"
+    },
+    "factsConsumed": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Factsconsumed",
+      "type": "array"
+    },
+    "fieldKey": {
+      "$ref": "#/$defs/FieldKey"
+    },
+    "localizationIds": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Localizationids",
+      "type": "array"
+    },
+    "reasonCode": {
+      "title": "Reasoncode",
+      "type": "string"
+    },
+    "requiresHumanReview": {
+      "title": "Requireshumanreview",
+      "type": "boolean"
+    },
+    "ruleId": {
+      "title": "Ruleid",
+      "type": "string"
+    },
+    "ruleVersion": {
+      "title": "Ruleversion",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ruleId",
+    "ruleVersion",
+    "fieldKey",
+    "applicable",
+    "automatedStatus",
+    "expectedValue",
+    "detectedValue",
+    "evidenceQuote",
+    "reasonCode",
+    "explanation",
+    "requiresHumanReview"
+  ],
+  "title": "RuleResult",
+  "type": "object"
+}

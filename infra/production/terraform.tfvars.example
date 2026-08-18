@@ -1,0 +1,14 @@
+aws_region     = "us-east-2"
+instance_type  = "t4g.medium"
+domain_name    = "labels.example.com"
+caddy_email    = "operator@example.com"
+route53_zone_id = "Z0123456789EXAMPLE"
+
+bootstrap_username                = "admin"
+bootstrap_password_parameter_name = "/treasury/production/bootstrap-password"
+session_hours                     = 12
+catalog_url                       = "https://catalog.example.com/catalog/manifest.json"
+
+# These are parameter NAMES, never secret values.
+openrouter_parameter_name = "/treasury/production/openrouter-api-key"
+openrouter_model          = "google/gemini-3.5-flash"

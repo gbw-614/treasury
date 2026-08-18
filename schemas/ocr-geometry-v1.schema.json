@@ -1,0 +1,188 @@
+{
+  "$defs": {
+    "BoundingBox": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "integer"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "title": "Width",
+          "type": "integer"
+        },
+        "x": {
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "BoundingBox",
+      "type": "object"
+    },
+    "OcrToken": {
+      "additionalProperties": false,
+      "properties": {
+        "blockId": {
+          "title": "Blockid",
+          "type": "string"
+        },
+        "boundingBox": {
+          "$ref": "#/$defs/BoundingBox"
+        },
+        "confidence": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "lineId": {
+          "title": "Lineid",
+          "type": "string"
+        },
+        "readingOrder": {
+          "minimum": 0,
+          "title": "Readingorder",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "tokenId": {
+          "title": "Tokenid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tokenId",
+        "text",
+        "boundingBox",
+        "confidence",
+        "blockId",
+        "lineId",
+        "readingOrder"
+      ],
+      "title": "OcrToken",
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.treasury.local/ocr-geometry-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "adapterVersion": {
+      "title": "Adapterversion",
+      "type": "string"
+    },
+    "engine": {
+      "title": "Engine",
+      "type": "string"
+    },
+    "engineVersion": {
+      "title": "Engineversion",
+      "type": "string"
+    },
+    "executable": {
+      "title": "Executable",
+      "type": "string"
+    },
+    "exitStatus": {
+      "title": "Exitstatus",
+      "type": "integer"
+    },
+    "languageData": {
+      "title": "Languagedata",
+      "type": "string"
+    },
+    "ocrDurationMs": {
+      "minimum": 0,
+      "title": "Ocrdurationms",
+      "type": "number"
+    },
+    "originalHeight": {
+      "exclusiveMinimum": 0,
+      "title": "Originalheight",
+      "type": "integer"
+    },
+    "originalWidth": {
+      "exclusiveMinimum": 0,
+      "title": "Originalwidth",
+      "type": "integer"
+    },
+    "panelId": {
+      "title": "Panelid",
+      "type": "string"
+    },
+    "preprocessingDurationMs": {
+      "minimum": 0,
+      "title": "Preprocessingdurationms",
+      "type": "number"
+    },
+    "preprocessingVersion": {
+      "title": "Preprocessingversion",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": "ocr-geometry-v1",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "sourceSha256": {
+      "title": "Sourcesha256",
+      "type": "string"
+    },
+    "tokens": {
+      "items": {
+        "$ref": "#/$defs/OcrToken"
+      },
+      "title": "Tokens",
+      "type": "array"
+    },
+    "transcript": {
+      "title": "Transcript",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "adapterVersion",
+    "engine",
+    "engineVersion",
+    "languageData",
+    "executable",
+    "preprocessingVersion",
+    "panelId",
+    "sourceSha256",
+    "originalWidth",
+    "originalHeight",
+    "transcript",
+    "tokens",
+    "exitStatus",
+    "warnings",
+    "preprocessingDurationMs",
+    "ocrDurationMs"
+  ],
+  "title": "OcrRun",
+  "type": "object"
+}

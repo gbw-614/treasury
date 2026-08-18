@@ -1,0 +1,139 @@
+{
+  "$defs": {
+    "BoundingBox": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "integer"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "title": "Width",
+          "type": "integer"
+        },
+        "x": {
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "BoundingBox",
+      "type": "object"
+    },
+    "FieldKey": {
+      "enum": [
+        "brand_name",
+        "class_type",
+        "alcohol_content",
+        "proof",
+        "government_warning_heading",
+        "government_warning_body"
+      ],
+      "title": "FieldKey",
+      "type": "string"
+    },
+    "LocationStatus": {
+      "enum": [
+        "located",
+        "location_ambiguous",
+        "location_unavailable"
+      ],
+      "title": "LocationStatus",
+      "type": "string"
+    }
+  },
+  "$id": "https://schemas.treasury.local/localization-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "acceptedTokenIds": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Acceptedtokenids",
+      "type": "array"
+    },
+    "displayBoxes": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/BoundingBox"
+      },
+      "title": "Displayboxes",
+      "type": "array"
+    },
+    "fieldKey": {
+      "$ref": "#/$defs/FieldKey"
+    },
+    "localizationId": {
+      "title": "Localizationid",
+      "type": "string"
+    },
+    "panelId": {
+      "title": "Panelid",
+      "type": "string"
+    },
+    "quote": {
+      "title": "Quote",
+      "type": "string"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "runnerUpSimilarity": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Runnerupsimilarity"
+    },
+    "similarity": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Similarity"
+    },
+    "status": {
+      "$ref": "#/$defs/LocationStatus"
+    }
+  },
+  "required": [
+    "localizationId",
+    "fieldKey",
+    "quote",
+    "panelId",
+    "status",
+    "reason"
+  ],
+  "title": "LocalizationResult",
+  "type": "object"
+}
