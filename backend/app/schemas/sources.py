@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import Field, field_validator, model_validator
 
 from .common import BeverageCategory, ContractModel
+from .common import migrate_legacy_reader_mode as _migrate_legacy_reader_mode
 
 Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 ObjectKey = Annotated[str, Field(min_length=1, max_length=500)]
@@ -102,13 +103,7 @@ class SourceCatalogImportRequest(ContractModel):
     @model_validator(mode="before")
     @classmethod
     def migrate_legacy_reader_mode(cls, value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        migrated = dict(value)
-        key = "readerMode" if "readerMode" in migrated else "reader_mode"
-        if migrated.get(key) == "both":
-            migrated[key] = "llm"
-        return migrated
+        return _migrate_legacy_reader_mode(value)
 
     @field_validator("source_case_ids")
     @classmethod

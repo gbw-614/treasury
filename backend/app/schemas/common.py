@@ -18,6 +18,17 @@ class ContractModel(BaseModel):
     )
 
 
+def migrate_legacy_reader_mode(value: object) -> object:
+    """Read historical dual-reader ("both") payloads as the retained LLM path."""
+    if not isinstance(value, dict):
+        return value
+    migrated = dict(value)
+    key = "readerMode" if "readerMode" in migrated else "reader_mode"
+    if migrated.get(key) == "both":
+        migrated[key] = "llm"
+    return migrated
+
+
 class BeverageCategory(StrEnum):
     WINE = "wine"
     DISTILLED_SPIRITS = "distilled_spirits"

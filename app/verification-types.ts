@@ -293,22 +293,12 @@ export type SourceCatalogCase = {
   description?: string;
 };
 
-export type SourceCatalogResponse = {
-  schemaVersion?: string;
-  catalogVersion?: string;
-  cases: SourceCatalogCase[];
-};
-
 export type SourceImportResult = {
   sourceCaseId: string;
   displayName?: string;
   status: "imported" | "skipped" | "error";
   message?: string;
   caseId?: string;
-};
-
-export type SourceImportResponse = {
-  results: SourceImportResult[];
 };
 
 export type SourceCatalogImportJob = {

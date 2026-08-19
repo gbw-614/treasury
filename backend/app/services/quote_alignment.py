@@ -39,6 +39,15 @@ def _overlap_ratio(left: Window, right: Window) -> float:
     return intersection / shortest if shortest else 0.0
 
 
+def _distinct(windows: list[Window]) -> list[Window]:
+    """Keep the first of any group of windows covering mostly the same tokens."""
+    distinct: list[Window] = []
+    for window in sorted(windows, key=lambda item: (item.start, item.end)):
+        if not any(_overlap_ratio(window, prior) >= 0.8 for prior in distinct):
+            distinct.append(window)
+    return distinct
+
+
 def align_quote(
     *,
     field_key: FieldKey,
@@ -64,13 +73,15 @@ def align_quote(
     target_length = max(1, len(quote_parts))
     minimum_length = max(1, target_length - 4)
     maximum_length = min(len(searchable), target_length + 6)
+    token_compacts = tuple(_compact(token.text) for token in searchable)
+    token_case_sensitive = tuple(_case_sensitive_compact(token.text) for token in searchable)
     windows: list[Window] = []
     for length in range(minimum_length, maximum_length + 1):
         for start in range(len(searchable) - length + 1):
             window_tokens = searchable[start : start + length]
-            compact = "".join(_compact(token.text) for token in window_tokens)
+            compact = "".join(token_compacts[start : start + length])
             case_sensitive_compact = "".join(
-                _case_sensitive_compact(token.text) for token in window_tokens
+                token_case_sensitive[start : start + length]
             )
             if not compact:
                 continue
@@ -92,12 +103,7 @@ def align_quote(
         if window.case_sensitive_compact == quote_case_sensitive
     ]
     if case_sensitive_exact:
-        distinct: list[Window] = []
-        for window in sorted(
-            case_sensitive_exact, key=lambda item: (item.start, item.end)
-        ):
-            if not any(_overlap_ratio(window, prior) >= 0.8 for prior in distinct):
-                distinct.append(window)
+        distinct = _distinct(case_sensitive_exact)
         if len(distinct) == 1:
             best = distinct[0]
             return LocalizationResult(
@@ -114,10 +120,7 @@ def align_quote(
 
     exact = [window for window in windows if window.compact == quote_compact]
     if exact:
-        distinct: list[Window] = []
-        for window in sorted(exact, key=lambda item: (item.start, item.end)):
-            if not any(_overlap_ratio(window, prior) >= 0.8 for prior in distinct):
-                distinct.append(window)
+        distinct = _distinct(exact)
         if len(distinct) > 1:
             return LocalizationResult(
                 localization_id=localization_id,

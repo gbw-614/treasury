@@ -4,6 +4,7 @@ import asyncio
 import csv
 import json
 import os
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from io import StringIO
@@ -48,6 +49,7 @@ from app.schemas import (
     SourceCatalogResponse,
     UserPreferencesResponse,
     UserPreferencesUpdate,
+    ValidatedPanel,
     VersionResponse,
 )
 from app.services import auth_store, case_store, recognition_cache, s3_catalog
@@ -293,18 +295,18 @@ async def _process_claimed_case(case_id: str) -> None:
             return
         request, panel_paths = work
         try:
-            contents = tuple(path.read_bytes() for path in panel_paths)
-            validated = tuple(
-                validate_image(content, panel_input.panel_id)
-                for panel_input, content in zip(request.panels, contents)
+            contents = await asyncio.to_thread(
+                lambda: tuple(path.read_bytes() for path in panel_paths)
+            )
+            validated = await asyncio.to_thread(
+                lambda: tuple(
+                    validate_image(content, panel_input.panel_id)
+                    for panel_input, content in zip(request.panels, contents)
+                )
             )
             panels = tuple(item[0] for item in validated)
             blanks = tuple(item[1] for item in validated)
-            analysis = (
-                await run_connected_analysis(request, panels[0], contents[0], blank=blanks[0])
-                if len(panels) == 1
-                else await run_connected_analysis(request, panels, contents, blanks=blanks)
-            )
+            analysis = await run_connected_analysis(request, panels, contents, blanks=blanks)
             case_store.complete_case(case_id, analysis)
         except Exception as exc:  # noqa: BLE001 - queue jobs must persist terminal failure
             case_store.fail_case(case_id, str(exc) or exc.__class__.__name__)
@@ -415,6 +417,33 @@ def _start_analysis_task(case_id: str) -> None:
     task.add_done_callback(ANALYSIS_TASKS.discard)
 
 
+async def _accumulate_catalog_imports(
+    source: s3_catalog.CatalogSource,
+    catalog: Any,
+    selection: SourceCatalogImportRequest,
+    user: CurrentUser,
+    imported: list[str],
+    duplicates: list[str],
+    issues: list[SourceCatalogImportIssue],
+    pending_analysis: list[str],
+    on_case_done: Callable[[], None] | None = None,
+) -> None:
+    for source_case_id in selection.source_case_ids:
+        imported_id, duplicate_id, issue, pending_id = await asyncio.to_thread(
+            _import_one_catalog_case, source, catalog, source_case_id, selection, user
+        )
+        if imported_id:
+            imported.append(imported_id)
+        if duplicate_id:
+            duplicates.append(duplicate_id)
+        if issue:
+            issues.append(issue)
+        if pending_id:
+            pending_analysis.append(pending_id)
+        if on_case_done is not None:
+            on_case_done()
+
+
 async def _run_catalog_import_job(job_id: str, user: CurrentUser) -> None:
     selection = case_store.get_catalog_import_job_request(job_id)
     if selection is None:
@@ -431,23 +460,20 @@ async def _run_catalog_import_job(job_id: str, user: CurrentUser) -> None:
                 duplicate_case_ids=duplicates, issues=issues,
             )
             source, catalog = await asyncio.to_thread(s3_catalog.configured_catalog)
-            for source_case_id in selection.source_case_ids:
-                imported_id, duplicate_id, issue, pending_id = await asyncio.to_thread(
-                    _import_one_catalog_case, source, catalog, source_case_id, selection, user
-                )
-                if imported_id:
-                    imported.append(imported_id)
-                if duplicate_id:
-                    duplicates.append(duplicate_id)
-                if issue:
-                    issues.append(issue)
-                if pending_id:
-                    pending_analysis.append(pending_id)
+
+            def record_case_done() -> None:
+                nonlocal completed
                 completed += 1
                 case_store.update_catalog_import_job(
                     job_id, status="running", completed_cases=completed,
                     imported_case_ids=imported, duplicate_case_ids=duplicates, issues=issues,
                 )
+
+            await _accumulate_catalog_imports(
+                source, catalog, selection, user,
+                imported, duplicates, issues, pending_analysis,
+                on_case_done=record_case_done,
+            )
             case_store.update_catalog_import_job(
                 job_id, status="complete", completed_cases=completed,
                 imported_case_ids=imported, duplicate_case_ids=duplicates, issues=issues,
@@ -471,6 +497,7 @@ def get_s3_catalog(user: CurrentUser = Depends(require_current_user)) -> SourceC
         source, catalog = s3_catalog.configured_catalog()
     except s3_catalog.CatalogError as exc:
         raise _catalog_http_error(exc) from exc
+    imports = case_store.list_catalog_imports()
     return SourceCatalogResponse(
         catalog_version=catalog.catalog_version,
         cases=tuple(
@@ -479,15 +506,7 @@ def get_s3_catalog(user: CurrentUser = Depends(require_current_user)) -> SourceC
                 display_name=item.display_name,
                 category=item.category,
                 panel_count=len(item.panels),
-                already_imported_case_id=(
-                    found.case_id
-                    if (found := case_store.find_catalog_import(
-                        catalog_url=source.catalog_url,
-                        catalog_version=catalog.catalog_version,
-                        source_case_id=item.source_case_id,
-                    ))
-                    else None
-                ),
+                already_imported_case_id=imports.get((source.catalog_url, item.source_case_id)),
             )
             for item in catalog.cases
         ),
@@ -514,18 +533,9 @@ async def import_s3_catalog_cases(
     duplicates: list[str] = []
     issues: list[SourceCatalogImportIssue] = []
     pending_analysis: list[str] = []
-    for source_case_id in selection.source_case_ids:
-        imported_id, duplicate_id, issue, pending_id = _import_one_catalog_case(
-            source, catalog, source_case_id, selection, user
-        )
-        if imported_id:
-            imported.append(imported_id)
-        if duplicate_id:
-            duplicates.append(duplicate_id)
-        if issue:
-            issues.append(issue)
-        if pending_id:
-            pending_analysis.append(pending_id)
+    await _accumulate_catalog_imports(
+        source, catalog, selection, user, imported, duplicates, issues, pending_analysis
+    )
     # The queue is displayed newest-first. Start the newest imported item first
     # so processing moves from the visible top of the queue toward the bottom.
     for case_id in reversed(pending_analysis):
@@ -610,10 +620,7 @@ def download_cases_report(_: CurrentUser = Depends(require_current_user)) -> Res
         lineterminator="\n",
     )
     writer.writeheader()
-    for summary in case_store.list_cases():
-        case = case_store.get_case(summary.case_id)
-        if case is None:  # pragma: no cover - a case may be deleted between reads
-            continue
+    for case in case_store.list_case_reports():
         rules = (
             (*case.analysis.rule_results, *case.analysis.additional_rule_results)
             if case.analysis
@@ -704,16 +711,19 @@ def restore_case(case_id: str, _: CurrentUser = Depends(require_current_user)) -
     return case
 
 
-@app.post("/api/v1/cases", response_model=CaseDetail, status_code=201)
-async def create_case(
-    background_tasks: BackgroundTasks,
-    request_json: Annotated[str, Form(alias="request")],
-    panel: Annotated[UploadFile | None, File()] = None,
-    panels: Annotated[list[UploadFile] | None, File()] = None,
-    auto_process: Annotated[bool, Form(alias="autoProcess")] = True,
-    display_name: Annotated[str | None, Form(alias="displayName")] = None,
-    user: CurrentUser = Depends(require_current_user),
-) -> CaseDetail:
+async def _validated_upload_set(
+    request_json: str,
+    panel: UploadFile | None,
+    panels: list[UploadFile] | None,
+    *,
+    filename_in_errors: bool,
+) -> tuple[
+    AnalysisRequest,
+    tuple[UploadFile, ...],
+    tuple[bytes, ...],
+    tuple[ValidatedPanel, ...],
+    tuple[bool, ...],
+]:
     try:
         request = _available_request(AnalysisRequest.model_validate_json(request_json))
     except ValidationError as exc:
@@ -729,23 +739,49 @@ async def create_case(
             detail={"code": "panel_count_mismatch", "message": "Upload one image for every ordered request panel."},
         )
     contents: list[bytes] = []
-    validated_panels: list[object] = []
+    validated_panels: list[ValidatedPanel] = []
+    blanks: list[bool] = []
     for panel_input, upload in zip(request.panels, uploads):
         content = await upload.read(MAX_UPLOAD_BYTES + 1)
         try:
-            validated_panel, _ = validate_image(content, panel_input.panel_id)
+            validated_panel, blank = await asyncio.to_thread(
+                validate_image, content, panel_input.panel_id
+            )
         except UploadValidationError as exc:
+            message = (
+                f"{upload.filename or panel_input.file}: {exc.message}"
+                if filename_in_errors
+                else exc.message
+            )
             raise HTTPException(
                 status_code=exc.status_code,
-                detail={"code": exc.code, "message": f"{upload.filename or panel_input.file}: {exc.message}"},
+                detail={"code": exc.code, "message": message},
             ) from exc
         contents.append(content)
         validated_panels.append(validated_panel)
+        blanks.append(blank)
+    return request, uploads, tuple(contents), tuple(validated_panels), tuple(blanks)
 
-    case = case_store.create_case(
+
+@app.post("/api/v1/cases", response_model=CaseDetail, status_code=201)
+async def create_case(
+    background_tasks: BackgroundTasks,
+    request_json: Annotated[str, Form(alias="request")],
+    panel: Annotated[UploadFile | None, File()] = None,
+    panels: Annotated[list[UploadFile] | None, File()] = None,
+    auto_process: Annotated[bool, Form(alias="autoProcess")] = True,
+    display_name: Annotated[str | None, Form(alias="displayName")] = None,
+    user: CurrentUser = Depends(require_current_user),
+) -> CaseDetail:
+    request, uploads, contents, validated_panels, _ = await _validated_upload_set(
+        request_json, panel, panels, filename_in_errors=True
+    )
+
+    case = await asyncio.to_thread(
+        case_store.create_case,
         request,
-        tuple(validated_panels),
-        tuple(contents),
+        validated_panels,
+        contents,
         filenames=tuple(upload.filename or input.file for upload, input in zip(uploads, request.panels)),
         display_name=display_name,
         current_user_id=user.user_id,
@@ -833,40 +869,10 @@ async def create_analysis(
     panels: Annotated[list[UploadFile] | None, File()] = None,
     _: CurrentUser = Depends(require_current_user),
 ) -> AnalysisResponse:
-    try:
-        request = _available_request(AnalysisRequest.model_validate_json(request_json))
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=json.loads(exc.json()),
-        ) from exc
-
-    uploads = tuple(panels or ()) or ((panel,) if panel else ())
-    if len(uploads) != len(request.panels):
-        raise HTTPException(status_code=422, detail={"code": "panel_count_mismatch", "message": "Upload one image for every ordered request panel."})
-    contents: list[bytes] = []
-    validated_panels: list[object] = []
-    blanks: list[bool] = []
-    for panel_input, upload in zip(request.panels, uploads):
-        content = await upload.read(MAX_UPLOAD_BYTES + 1)
-        try:
-            validated_panel, blank = validate_image(content, panel_input.panel_id)
-        except UploadValidationError as exc:
-            raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
-        contents.append(content)
-        validated_panels.append(validated_panel)
-        blanks.append(blank)
-
-    return (
-        await run_connected_analysis(request, validated_panels[0], contents[0], blank=blanks[0])
-        if len(validated_panels) == 1
-        else await run_connected_analysis(
-            request,
-            tuple(validated_panels),
-            tuple(contents),
-            blanks=tuple(blanks),
-        )
+    request, _, contents, validated_panels, blanks = await _validated_upload_set(
+        request_json, panel, panels, filename_in_errors=False
     )
+    return await run_connected_analysis(request, validated_panels, contents, blanks=blanks)
 
 
 @app.get("/", include_in_schema=False)

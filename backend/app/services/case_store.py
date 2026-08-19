@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import sqlite3
+import threading
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +35,16 @@ from app.schemas import (
 DEFAULT_DATA_ROOT = Path(__file__).resolve().parents[2] / "data"
 DATA_ROOT = Path(os.environ.get("VERIFICATION_DATA_DIR") or DEFAULT_DATA_ROOT)
 
+_ANALYSIS_STATUS_FOR_PROCESSING = {
+    ProcessingStatus.QUEUED.value: AnalysisStatus.QUEUED,
+    ProcessingStatus.PROCESSING.value: AnalysisStatus.ANALYZING,
+    ProcessingStatus.COMPLETE.value: AnalysisStatus.COMPLETE,
+    ProcessingStatus.ERROR.value: AnalysisStatus.ERROR,
+}
+
+_SCHEMA_LOCK = threading.Lock()
+_INITIALIZED_DATABASES: set[Path] = set()
+
 
 class CaseReviewClaimConflict(RuntimeError):
     """Raised when a reviewer attempts to claim work owned by someone else."""
@@ -58,6 +69,15 @@ def _connect() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA foreign_keys=ON")
+    resolved = database.resolve()
+    with _SCHEMA_LOCK:
+        if resolved not in _INITIALIZED_DATABASES:
+            _initialize_schema(connection)
+            _INITIALIZED_DATABASES.add(resolved)
+    return connection
+
+
+def _initialize_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS verification_cases (
@@ -141,12 +161,7 @@ def _connect() -> sqlite3.Connection:
     for row in legacy_rows:
         recovered_automated_outcome = row["automated_outcome"]
         decision_source = row["decision_source"]
-        analysis_status = {
-            ProcessingStatus.QUEUED.value: AnalysisStatus.QUEUED.value,
-            ProcessingStatus.PROCESSING.value: AnalysisStatus.ANALYZING.value,
-            ProcessingStatus.COMPLETE.value: AnalysisStatus.COMPLETE.value,
-            ProcessingStatus.ERROR.value: AnalysisStatus.ERROR.value,
-        }[row["processing_status"]]
+        analysis_status = _ANALYSIS_STATUS_FOR_PROCESSING[row["processing_status"]].value
         processing_status = row["processing_status"]
         if row["outcome"]:
             processing_status = row["processing_status"]
@@ -184,7 +199,6 @@ def _connect() -> sqlite3.Connection:
             ),
         )
     connection.commit()
-    return connection
 
 
 def _now() -> str:
@@ -308,12 +322,7 @@ def _decision_for_outcome(outcome: CaseOutcome) -> DecisionStatus:
 def _analysis_status(row: sqlite3.Row) -> AnalysisStatus:
     if row["analysis_status"]:
         return AnalysisStatus(row["analysis_status"])
-    return {
-        ProcessingStatus.QUEUED.value: AnalysisStatus.QUEUED,
-        ProcessingStatus.PROCESSING.value: AnalysisStatus.ANALYZING,
-        ProcessingStatus.COMPLETE.value: AnalysisStatus.COMPLETE,
-        ProcessingStatus.ERROR.value: AnalysisStatus.ERROR,
-    }[row["processing_status"]]
+    return _ANALYSIS_STATUS_FOR_PROCESSING[row["processing_status"]]
 
 
 def _decision_status(row: sqlite3.Row) -> DecisionStatus:
@@ -343,7 +352,9 @@ def _panel_paths_from_row(row: sqlite3.Row) -> tuple[Path, ...]:
     return (Path(row["panel_path"]),)
 
 
-def _summary_from_row(row: sqlite3.Row, *, duplicate_image_count: int = 0) -> CaseSummary:
+def _summary_from_row(
+    row: sqlite3.Row, *, duplicate_image_count: int = 0, panel: CasePanel | None = None
+) -> CaseSummary:
     request = AnalysisRequest.model_validate_json(row["request_json"])
     return CaseSummary(
         case_id=row["case_id"],
@@ -355,7 +366,7 @@ def _summary_from_row(row: sqlite3.Row, *, duplicate_image_count: int = 0) -> Ca
         category=request.category,
         expected=request.expected,
         checks=request.checks,
-        panel=_panel_from_row(row),
+        panel=panel if panel is not None else _panel_from_row(row),
         panels=_panels_from_row(row),
         processing_status=row["processing_status"],
         analysis_status=_analysis_status(row),
@@ -378,8 +389,8 @@ def _summary_from_row(row: sqlite3.Row, *, duplicate_image_count: int = 0) -> Ca
     )
 
 
-def _detail_from_row(row: sqlite3.Row) -> CaseDetail:
-    summary = _summary_from_row(row, duplicate_image_count=_duplicate_count(row))
+def _detail_from_row(row: sqlite3.Row, connection: sqlite3.Connection) -> CaseDetail:
+    summary = _summary_from_row(row, duplicate_image_count=_duplicate_count(row, connection))
     analysis = (
         AnalysisResponse.model_validate_json(row["analysis_json"])
         if row["analysis_json"]
@@ -495,17 +506,34 @@ def find_catalog_import(
         rows = connection.execute(
             "SELECT * FROM verification_cases WHERE source_json IS NOT NULL ORDER BY created_at DESC"
         ).fetchall()
+        for row in rows:
+            try:
+                source = CatalogProvenance.model_validate_json(row["source_json"])
+            except ValidationError:  # pragma: no cover - tolerate historical malformed rows
+                continue
+            if (
+                source.catalog_url == catalog_url
+                and source.source_case_id == source_case_id
+            ):
+                return _detail_from_row(row, connection)
+    return None
+
+
+def list_catalog_imports() -> dict[tuple[str, str], str]:
+    """Map every imported (catalogUrl, sourceCaseId) to its newest case ID."""
+    with _connect() as connection:
+        rows = connection.execute(
+            "SELECT case_id, source_json, created_at FROM verification_cases "
+            "WHERE source_json IS NOT NULL ORDER BY created_at DESC"
+        ).fetchall()
+    imports: dict[tuple[str, str], str] = {}
     for row in rows:
         try:
             source = CatalogProvenance.model_validate_json(row["source_json"])
         except ValidationError:  # pragma: no cover - tolerate historical malformed rows
             continue
-        if (
-            source.catalog_url == catalog_url
-            and source.source_case_id == source_case_id
-        ):
-            return _detail_from_row(row)
-    return None
+        imports.setdefault((source.catalog_url, source.source_case_id), row["case_id"])
+    return imports
 
 
 def list_cases() -> tuple[CaseSummary, ...]:
@@ -513,26 +541,47 @@ def list_cases() -> tuple[CaseSummary, ...]:
         rows = connection.execute(
             "SELECT * FROM verification_cases ORDER BY created_at DESC"
         ).fetchall()
-    counts = Counter(_panel_from_row(row).sha256 for row in rows if row["removed_at"] is None)
+    panels = tuple(_panel_from_row(row) for row in rows)
+    counts = Counter(panel.sha256 for row, panel in zip(rows, panels) if row["removed_at"] is None)
     return tuple(
         _summary_from_row(
             row,
-            duplicate_image_count=(counts[_panel_from_row(row).sha256] - 1) if row["removed_at"] is None else 0,
+            duplicate_image_count=(counts[panel.sha256] - 1) if row["removed_at"] is None else 0,
+            panel=panel,
+        )
+        for row, panel in zip(rows, panels)
+    )
+
+
+def list_case_reports() -> tuple[CaseDetail, ...]:
+    """Fetch every case with its analysis in one pass for report exports."""
+    with _connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM verification_cases ORDER BY created_at DESC"
+        ).fetchall()
+    return tuple(
+        CaseDetail(
+            **_summary_from_row(row).model_dump(),
+            analysis=(
+                AnalysisResponse.model_validate_json(row["analysis_json"])
+                if row["analysis_json"]
+                else None
+            ),
         )
         for row in rows
     )
 
 
-def _duplicate_count(row: sqlite3.Row) -> int:
-    target_sha = _panel_from_row(row).sha256
-    with _connect() as connection:
-        rows = connection.execute("SELECT panel_json, removed_at FROM verification_cases").fetchall()
+def _duplicate_count(row: sqlite3.Row, connection: sqlite3.Connection) -> int:
     if row["removed_at"] is not None:
         return 0
-    return max(0, sum(
-        CasePanel.model_validate_json(item["panel_json"]).sha256 == target_sha and item["removed_at"] is None
-        for item in rows
-    ) - 1)
+    target_sha = _panel_from_row(row).sha256
+    count = connection.execute(
+        "SELECT COUNT(*) FROM verification_cases "
+        "WHERE removed_at IS NULL AND json_extract(panel_json, '$.sha256') = ?",
+        (target_sha,),
+    ).fetchone()[0]
+    return max(0, int(count) - 1)
 
 
 def get_case(case_id: str) -> CaseDetail | None:
@@ -540,7 +589,7 @@ def get_case(case_id: str) -> CaseDetail | None:
         row = connection.execute(
             "SELECT * FROM verification_cases WHERE case_id = ?", (case_id,)
         ).fetchone()
-    return _detail_from_row(row) if row else None
+        return _detail_from_row(row, connection) if row else None
 
 
 def get_case_work(case_id: str) -> tuple[AnalysisRequest, tuple[Path, ...]] | None:

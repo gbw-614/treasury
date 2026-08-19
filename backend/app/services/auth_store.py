@@ -12,6 +12,7 @@ import json
 import os
 import secrets
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -25,6 +26,9 @@ PASSWORD_SCRYPT_N = 2**14
 PASSWORD_SCRYPT_R = 8
 PASSWORD_SCRYPT_P = 1
 MAX_ENABLED_USERS = 3
+
+_SCHEMA_LOCK = threading.Lock()
+_INITIALIZED_DATABASES: set[Path] = set()
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,15 @@ def _connect() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA foreign_keys=ON")
+    resolved = database.resolve()
+    with _SCHEMA_LOCK:
+        if resolved not in _INITIALIZED_DATABASES:
+            _initialize_schema(connection)
+            _INITIALIZED_DATABASES.add(resolved)
+    return connection
+
+
+def _initialize_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS verification_users (
@@ -81,7 +94,6 @@ def _connect() -> sqlite3.Connection:
         """
     )
     connection.commit()
-    return connection
 
 
 def _now() -> datetime:
@@ -106,18 +118,13 @@ def _password_hash(password: str, *, salt: bytes | None = None) -> str:
     Argon2 would be equally suitable. scrypt gives the local Docker build a
     memory-hard password hash without needing an additional compiler/wheel.
     """
-    actual_salt = salt or secrets.token_bytes(16)
-    derived = hashlib.scrypt(
-        password.encode("utf-8"),
-        salt=actual_salt,
-        n=PASSWORD_SCRYPT_N,
-        r=PASSWORD_SCRYPT_R,
-        p=PASSWORD_SCRYPT_P,
-        dklen=32,
+    return _password_hash_with_params(
+        password,
+        salt or secrets.token_bytes(16),
+        PASSWORD_SCRYPT_N,
+        PASSWORD_SCRYPT_R,
+        PASSWORD_SCRYPT_P,
     )
-    encoded_salt = base64.urlsafe_b64encode(actual_salt).decode("ascii")
-    encoded_hash = base64.urlsafe_b64encode(derived).decode("ascii")
-    return f"scrypt${PASSWORD_SCRYPT_N}${PASSWORD_SCRYPT_R}${PASSWORD_SCRYPT_P}${encoded_salt}${encoded_hash}"
 
 
 def _verify_password(password: str, stored: str) -> bool:
@@ -307,6 +314,7 @@ def get_session(token: str | None) -> AuthenticatedSession | None:
     if not token:
         return None
     now = _now()
+    token_hash = _hash_token(token)
     with _connect() as connection:
         row = connection.execute(
             """
@@ -315,12 +323,12 @@ def get_session(token: str | None) -> AuthenticatedSession | None:
             JOIN verification_users u ON u.user_id = s.user_id
             WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ? AND u.disabled_at IS NULL
             """,
-            (_hash_token(token), _timestamp(now)),
+            (token_hash, _timestamp(now)),
         ).fetchone()
         if row is None:
             return None
         connection.execute(
-            "UPDATE verification_sessions SET last_seen_at = ? WHERE token_hash = ?", (_timestamp(now), _hash_token(token))
+            "UPDATE verification_sessions SET last_seen_at = ? WHERE token_hash = ?", (_timestamp(now), token_hash)
         )
     return AuthenticatedSession(user=_user_from_row(row), expires_at=_parse_timestamp(row["expires_at"]))
 

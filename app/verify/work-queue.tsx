@@ -28,6 +28,7 @@ import type {
   QueuePreferences,
   QueueUser,
 } from "../verification-types";
+import { DEFAULT_QUEUE_PREFERENCES, categoryLabel } from "./shared";
 
 type QueueProps = {
   cases: QueueCase[];
@@ -67,21 +68,12 @@ type ReviewFilter = "all" | "attention" | "automated" | "human";
 
 type QueueFilters = QueuePreferences;
 
-const DEFAULT_QUEUE_FILTERS: QueueFilters = {
-  query: "",
-  outcomeFilter: "all",
-  reviewFilter: "all",
-  assignmentFilter: "all",
-  showRemoved: false,
-  reviewWorkspaceFilter: "review_only",
-};
-
 function savedQueueFilters(): QueueFilters {
   try {
     const raw = window.localStorage.getItem(QUEUE_FILTERS_STORAGE_KEY);
-    if (!raw) return DEFAULT_QUEUE_FILTERS;
+    if (!raw) return DEFAULT_QUEUE_PREFERENCES;
     const saved: unknown = JSON.parse(raw);
-    if (!saved || typeof saved !== "object") return DEFAULT_QUEUE_FILTERS;
+    if (!saved || typeof saved !== "object") return DEFAULT_QUEUE_PREFERENCES;
     const value = saved as Partial<QueueFilters>;
     return {
       query: typeof value.query === "string" ? value.query : "",
@@ -92,7 +84,7 @@ function savedQueueFilters(): QueueFilters {
       reviewWorkspaceFilter: value.reviewWorkspaceFilter === "all" || value.reviewWorkspaceFilter === "not_human_confirmed" || value.reviewWorkspaceFilter === "failed" ? value.reviewWorkspaceFilter : "review_only",
     };
   } catch {
-    return DEFAULT_QUEUE_FILTERS;
+    return DEFAULT_QUEUE_PREFERENCES;
   }
 }
 
@@ -107,20 +99,15 @@ function workflowLabel(item: QueueCase) {
   return item.outcome ? OUTCOME_LABELS[item.outcome] : "—";
 }
 
-function categoryLabel(category: QueueCase["category"]) {
-  if (category === "distilled_spirits") return "Distilled spirits";
-  if (category === "malt_beverage") return "Malt beverage";
-  if (category === "wine") return "Wine";
-  return "—";
-}
+const TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
 
 function formatTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+  return TIME_FORMAT.format(new Date(value));
 }
 
 export default function WorkQueue({

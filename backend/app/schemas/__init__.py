@@ -1,7 +1,6 @@
 from .auth import (
     CurrentUser,
     LoginRequest,
-    LoginResponse,
     SessionConflictResponse,
     UserPreferencesResponse,
     UserPreferencesUpdate,
@@ -99,7 +98,6 @@ __all__ = [
     "LocalizationResult",
     "LocationStatus",
     "LoginRequest",
-    "LoginResponse",
     "OcrRun",
     "OcrToken",
     "OverallSummary",

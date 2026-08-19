@@ -31,9 +31,9 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def fixture_analysis_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def analyze_fixture(request, panel, content, *, blank):
-        del content
-        return build_mock_analysis(request, panel, blank=blank)
+    async def analyze_fixture(request, panels, contents, *, blanks):
+        del contents
+        return build_mock_analysis(request, panels[0], blank=blanks[0])
 
     monkeypatch.setattr("app.main.run_connected_analysis", analyze_fixture)
 

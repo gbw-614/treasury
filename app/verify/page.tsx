@@ -51,16 +51,12 @@ import type {
   RuleResult,
 } from "../verification-types";
 import WorkQueue from "./work-queue";
+import { DEFAULT_QUEUE_PREFERENCES, categoryLabel, errorMessage } from "./shared";
 import { previewBatchImportFiles, parseCaseImport, type BatchImportPreview } from "./import-case";
 import CaseEntryForm, { type FileImportProgress } from "./case-entry-form";
 import CatalogImport from "./catalog-import";
 
 const API_URL = import.meta.env.VITE_VERIFICATION_API_URL ?? "";
-
-const DEFAULT_QUEUE_PREFERENCES: QueuePreferences = {
-  query: "", outcomeFilter: "all", reviewFilter: "all", assignmentFilter: "all", showRemoved: false,
-  reviewWorkspaceFilter: "review_only",
-};
 
 type ReviewWorkspaceFilter = QueuePreferences["reviewWorkspaceFilter"];
 
@@ -209,6 +205,55 @@ function ResultGridValue({ fieldKey, value, detected = false }: {
   );
 }
 
+function StatusCell({ status, explanation }: { status: RuleResult["automatedStatus"]; explanation: string }) {
+  return (
+    <span className="verify-rule-status" role="cell" title={explanation}>
+      {status === "matches" ? <CheckCircle2 size={20} /> : status === "discrepancy" ? <XCircle size={20} /> : <AlertTriangle size={20} />}
+      <span>
+        <b>{statusLabel(status)}</b>
+        {status === "review" && <small>{explanation}</small>}
+      </span>
+    </span>
+  );
+}
+
+function EvidenceButton({ source, name, label, fieldLabel, ids, pinned, locatedTitle, missingTitle, onShow, onClear, onPin }: {
+  source: "vision" | "ocr";
+  name: string;
+  label: string;
+  fieldLabel: string;
+  ids: string[];
+  pinned: boolean;
+  locatedTitle: string;
+  missingTitle: string;
+  onShow: (ids: string[]) => void;
+  onClear: () => void;
+  onPin: (ids: string[], pinned: boolean) => void;
+}) {
+  const located = ids.length > 0;
+  return (
+    <button
+      className={`source-${source}`}
+      type="button"
+      disabled={!located}
+      aria-pressed={pinned}
+      aria-label={located ? `Inspect ${name} evidence for ${fieldLabel}` : `No ${name} evidence located for ${fieldLabel}`}
+      title={located ? locatedTitle : missingTitle}
+      onMouseEnter={() => located && onShow(ids)}
+      onMouseLeave={onClear}
+      onFocus={() => located && onShow(ids)}
+      onBlur={onClear}
+      onClick={() => {
+        if (!located) return;
+        onPin(ids, pinned);
+      }}
+    >
+      <Eye size={18} />
+      <small>{label}</small>
+    </button>
+  );
+}
+
 function unionBoxes(boxes: Array<{ x: number; y: number; width: number; height: number }>) {
   if (!boxes.length) return [];
   const left = Math.min(...boxes.map((box) => box.x));
@@ -216,12 +261,6 @@ function unionBoxes(boxes: Array<{ x: number; y: number; width: number; height: 
   const right = Math.max(...boxes.map((box) => box.x + box.width));
   const bottom = Math.max(...boxes.map((box) => box.y + box.height));
   return [{ x: left, y: top, width: right - left, height: bottom - top }];
-}
-
-function categoryLabel(category: BeverageCategory) {
-  if (category === "distilled_spirits") return "Distilled spirits";
-  if (category === "malt_beverage") return "Malt beverage";
-  return "Wine";
 }
 
 function modelLabel(model: string) {
@@ -236,19 +275,6 @@ function statusLabel(status: RuleResult["automatedStatus"]) {
   if (status === "discrepancy") return "Mismatch";
   if (status === "does_not_apply") return "Does not apply";
   return status.replaceAll("_", " ");
-}
-
-function errorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object" || !("detail" in payload)) return fallback;
-  const detail = (payload as { detail: unknown }).detail;
-  if (typeof detail === "string") return detail;
-  if (detail && typeof detail === "object" && "message" in detail) {
-    return String((detail as { message: unknown }).message);
-  }
-  if (Array.isArray(detail)) {
-    return detail.map((item) => (item && typeof item === "object" && "msg" in item ? String(item.msg) : "Invalid request")).join(" · ");
-  }
-  return fallback;
 }
 
 function needsHumanReview(item: QueueCase) {
@@ -396,10 +422,6 @@ export default function VerifyPage() {
     return () => { cancelled = true; };
   }, [apiFetch, authState]);
 
-  const saveQueuePreferences = useCallback((preferences: QueuePreferences) => {
-    setQueuePreferences(preferences);
-  }, []);
-
   useEffect(() => {
     if (authState !== "ready" || !queuePreferences) return;
     const timer = window.setTimeout(() => {
@@ -480,11 +502,13 @@ export default function VerifyPage() {
     return () => { cancelled = true; };
   }, [apiFetch, authState, readerCapabilities.visionAvailable]);
 
+  const hasProcessingCases = queueCases.some((item) => item.processingStatus === "processing");
+
   useEffect(() => {
-    if (!queueCases.some((item) => item.processingStatus === "processing")) return;
+    if (!hasProcessingCases) return;
     const timer = window.setInterval(() => void refreshQueue(), 1800);
     return () => window.clearInterval(timer);
-  }, [queueCases, refreshQueue]);
+  }, [hasProcessingCases, refreshQueue]);
 
   useEffect(() => {
     if (!activeCase || activeCase.processingStatus !== "processing") return;
@@ -530,6 +554,18 @@ export default function VerifyPage() {
       };
     });
   }, [activeCase, analysis, previewUrl]);
+  const visionEvidenceCandidates = useMemo(
+    () => {
+      return (analysis?.visionRun.panels ?? []).flatMap((panel) =>
+        panel.fields.map((candidate, candidateIndex) => ({
+          candidate,
+          sourcePanelId: panel.panelId,
+          id: `vision-${candidate.fieldKey}-${candidate.panelId}-${candidateIndex}`,
+        })),
+      );
+    },
+    [analysis],
+  );
   const evidenceRegions = useMemo<EvidenceRegion[]>(
     () => {
       const ocrRegions = (analysis?.localizations ?? []).map((location) => ({
@@ -548,18 +584,20 @@ export default function VerifyPage() {
             boxes: block.modelBoundingBox ? [block.modelBoundingBox] : [],
             source: analysis?.readerMode === "ocr" ? "ocr" as const : "vision" as const,
           })),
-          ...panel.fields.map((candidate, candidateIndex) => ({
-            id: `vision-${candidate.fieldKey}-${candidate.panelId}-${candidateIndex}`,
-            panelId: candidate.panelId,
-            text: candidate.evidenceQuote || FIELD_LABELS[candidate.fieldKey],
-            boxes: candidate.modelBoundingBox ? [candidate.modelBoundingBox] : [],
-            source: "vision" as const,
-          })),
+          ...visionEvidenceCandidates
+            .filter(({ sourcePanelId }) => sourcePanelId === panel.panelId)
+            .map(({ candidate, id }) => ({
+              id,
+              panelId: candidate.panelId,
+              text: candidate.evidenceQuote || FIELD_LABELS[candidate.fieldKey],
+              boxes: candidate.modelBoundingBox ? [candidate.modelBoundingBox] : [],
+              source: "vision" as const,
+            })),
         ],
       );
       return [...visionRegions, ...ocrRegions];
     },
-    [analysis],
+    [analysis, visionEvidenceCandidates],
   );
   const localizationsById = useMemo(
     () => new Map((analysis?.localizations ?? []).map((location) => [location.localizationId, location])),
@@ -568,17 +606,6 @@ export default function VerifyPage() {
   const evidenceRegionsById = useMemo(
     () => new Map(evidenceRegions.map((region) => [region.id, region])),
     [evidenceRegions],
-  );
-  const visionEvidenceCandidates = useMemo(
-    () => {
-      return (analysis?.visionRun.panels ?? []).flatMap((panel) =>
-        panel.fields.map((candidate, candidateIndex) => ({
-          candidate,
-          id: `vision-${candidate.fieldKey}-${candidate.panelId}-${candidateIndex}`,
-        })),
-      );
-    },
-    [analysis],
   );
   const visibleRuleResults = useMemo(
     () =>
@@ -636,6 +663,11 @@ export default function VerifyPage() {
   };
 
   const clearHoveredEvidence = () => setHoverEvidence([]);
+
+  const pinEvidence = (ids: string[], pinned: boolean) => {
+    setHoverEvidence([]);
+    setPinnedEvidence(pinned ? [] : ids);
+  };
 
   const createQueuedCase = async (
     request: VerificationRequest,
@@ -701,6 +733,22 @@ export default function VerifyPage() {
     }
   };
 
+  const hydrateExpectedFields = (source: { expected?: QueueCase["expected"]; checks?: FieldLibraryCheck[] }) => {
+    const checks = source.checks ?? [];
+    setBrandName(source.expected?.brandName ?? selectedCheckValue(checks, "brand_name") ?? "");
+    setClassType(source.expected?.classType ?? selectedCheckValue(checks, "class_type") ?? "");
+    setAbvPercent(source.expected?.abvPercent === null || source.expected?.abvPercent === undefined
+      ? selectedCheckValue(checks, "alcohol_content") ?? ""
+      : String(source.expected.abvPercent));
+    setProof(source.expected?.proof === null || source.expected?.proof === undefined
+      ? selectedCheckValue(checks, "proof") ?? ""
+      : String(source.expected.proof));
+    setIncludeGovernmentWarning(source.expected?.governmentWarning !== null && source.expected?.governmentWarning !== undefined
+      ? true
+      : hasSelectedCheck(checks, "government_warning"));
+    setAdditionalExpectedFields(source.expected?.additionalFields ?? []);
+  };
+
   const importCaseFiles = async (applicationFile: File, artworkFiles: File[]) => {
     setImportingCase(true);
     setFileImportProgress({ completed: 0, total: 1, phase: "adding" });
@@ -709,21 +757,7 @@ export default function VerifyPage() {
     try {
       const parsed = parseCaseImport(JSON.parse(await applicationFile.text()), artworkFiles.map((file) => file.name));
       setCategory(parsed.request.category);
-      if (parsed.request.schemaVersion === "verification-request-v2") {
-        setBrandName(selectedCheckValue(parsed.request.checks, "brand_name") ?? "");
-        setClassType(selectedCheckValue(parsed.request.checks, "class_type") ?? "");
-        setAbvPercent(selectedCheckValue(parsed.request.checks, "alcohol_content") ?? "");
-        setProof(selectedCheckValue(parsed.request.checks, "proof") ?? "");
-        setIncludeGovernmentWarning(hasSelectedCheck(parsed.request.checks, "government_warning"));
-        setAdditionalExpectedFields([]);
-      } else {
-        setBrandName(parsed.request.expected.brandName ?? "");
-        setClassType(parsed.request.expected.classType ?? "");
-        setAbvPercent(parsed.request.expected.abvPercent === null ? "" : String(parsed.request.expected.abvPercent));
-        setProof(parsed.request.expected.proof === null ? "" : String(parsed.request.expected.proof));
-        setIncludeGovernmentWarning(parsed.request.expected.governmentWarning !== null);
-        setAdditionalExpectedFields(parsed.request.expected.additionalFields);
-      }
+      hydrateExpectedFields(parsed.request);
       setFile(artworkFiles[0] ?? null);
       setPreviewUrl(artworkFiles[0] ? URL.createObjectURL(artworkFiles[0]) : "");
       await enqueueCase(parsed.request, artworkFiles, parsed.displayName, {
@@ -901,18 +935,7 @@ export default function VerifyPage() {
         await refreshQueue();
       }
       setCategory(detail.category ?? "distilled_spirits");
-      setBrandName(detail.expected?.brandName ?? selectedCheckValue(detail.checks, "brand_name") ?? "");
-      setClassType(detail.expected?.classType ?? selectedCheckValue(detail.checks, "class_type") ?? "");
-      setAbvPercent(detail.expected?.abvPercent === null || detail.expected?.abvPercent === undefined
-        ? selectedCheckValue(detail.checks, "alcohol_content") ?? ""
-        : String(detail.expected.abvPercent));
-      setProof(detail.expected?.proof === null || detail.expected?.proof === undefined
-        ? selectedCheckValue(detail.checks, "proof") ?? ""
-        : String(detail.expected.proof));
-      setIncludeGovernmentWarning(detail.expected?.governmentWarning !== null && detail.expected?.governmentWarning !== undefined
-        ? true
-        : hasSelectedCheck(detail.checks, "government_warning"));
-      setAdditionalExpectedFields(detail.expected?.additionalFields ?? []);
+      hydrateExpectedFields(detail);
       setFile(null);
       setPreviewUrl("");
       setActiveCase(detail);
@@ -968,81 +991,62 @@ export default function VerifyPage() {
       await openCase(next.caseId);
       return;
     }
-    reset();
-    setFile(null);
-    setPreviewUrl("");
-    setActiveTab("review");
+    showEmptyReviewWorkspace(false);
   };
 
-  const scanCase = async (caseId: string) => {
-    setScanningCaseId(caseId);
+  const mutateCase = async (caseId: string, setBusyId: (id: string) => void, options: {
+    path?: string;
+    method?: string;
+    fallback: string;
+    failureMessage: string;
+    onSuccess?: () => void;
+  }) => {
+    setBusyId(caseId);
     setQueueError("");
     try {
-      const response = await apiFetch(`${API_URL}/api/v1/cases/${caseId}/scan`, { method: "POST" });
+      const response = await apiFetch(`${API_URL}/api/v1/cases/${caseId}${options.path ?? ""}`, { method: options.method ?? "POST" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(errorMessage(payload, `Scan could not start (${response.status})`));
+        throw new Error(errorMessage(payload, `${options.fallback} (${response.status})`));
       }
+      options.onSuccess?.();
       await refreshQueue();
     } catch (caught) {
-      setQueueError(caught instanceof Error ? caught.message : "The scan could not be started.");
+      setQueueError(caught instanceof Error ? caught.message : options.failureMessage);
     } finally {
-      setScanningCaseId("");
+      setBusyId("");
     }
   };
 
-  const removeCase = async (caseId: string) => {
-    setRemovingCaseId(caseId);
-    setQueueError("");
-    try {
-      const response = await apiFetch(`${API_URL}/api/v1/cases/${caseId}`, { method: "DELETE" });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(errorMessage(payload, `Case could not be removed (${response.status})`));
-      }
+  const scanCase = (caseId: string) => mutateCase(caseId, setScanningCaseId, {
+    path: "/scan",
+    fallback: "Scan could not start",
+    failureMessage: "The scan could not be started.",
+  });
+
+  const removeCase = (caseId: string) => mutateCase(caseId, setRemovingCaseId, {
+    method: "DELETE",
+    fallback: "Case could not be removed",
+    failureMessage: "The queue item could not be removed.",
+    onSuccess: () => {
       if (activeCase?.caseId === caseId) {
         reset();
         setActiveTab("queue");
       }
-      await refreshQueue();
-    } catch (caught) {
-      setQueueError(caught instanceof Error ? caught.message : "The queue item could not be removed.");
-    } finally {
-      setRemovingCaseId("");
-    }
-  };
+    },
+  });
 
-  const restoreCase = async (caseId: string) => {
-    setRemovingCaseId(caseId);
-    setQueueError("");
-    try {
-      const response = await apiFetch(`${API_URL}/api/v1/cases/${caseId}/restore`, { method: "POST" });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(errorMessage(payload, `Case could not be restored (${response.status})`));
-      }
-      await refreshQueue();
-    } catch (caught) {
-      setQueueError(caught instanceof Error ? caught.message : "The queue item could not be restored.");
-    } finally {
-      setRemovingCaseId("");
-    }
-  };
+  const restoreCase = (caseId: string) => mutateCase(caseId, setRemovingCaseId, {
+    path: "/restore",
+    fallback: "Case could not be restored",
+    failureMessage: "The queue item could not be restored.",
+  });
 
-  const changeClaim = async (caseId: string, action: "claim" | "release") => {
-    setClaimingCaseId(caseId);
-    setQueueError("");
-    try {
-      const response = await apiFetch(`${API_URL}/api/v1/cases/${caseId}/${action}`, { method: "POST" });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(errorMessage(payload, `Case could not be ${action === "claim" ? "claimed" : "released"} (${response.status})`));
-      }
-      await refreshQueue();
-    } catch (caught) {
-      setQueueError(caught instanceof Error ? caught.message : "The assignment could not be updated.");
-    } finally { setClaimingCaseId(""); }
-  };
+  const changeClaim = (caseId: string, action: "claim" | "release") => mutateCase(caseId, setClaimingCaseId, {
+    path: `/${action}`,
+    fallback: `Case could not be ${action === "claim" ? "claimed" : "released"}`,
+    failureMessage: "The assignment could not be updated.",
+  });
 
   const logout = async () => {
     await apiFetch(`${API_URL}/api/v1/auth/logout`, { method: "POST" }).catch(() => undefined);
@@ -1146,6 +1150,8 @@ export default function VerifyPage() {
   if (authState === "checking") return <main className="loading-screen"><LoaderCircle className="spin" size={28} /><h1>Human-in-the-loop review accelerator</h1><p>Checking your session…</p></main>;
   if (authState === "login" || !currentUser) return <LoginScreen onLogin={(username, password) => void login(username, password)} busy={loginBusy} error={loginError} conflict={sessionConflict} onReplace={() => pendingLogin && void login(pendingLogin.username, pendingLogin.password, true)} />;
 
+  const reviewBadgeCount = queueCases.filter((item) => needsHumanReview(item) && (!item.assignedToUserId || item.assignedToUserId === currentUser.userId)).length;
+
   return (
     <main className="app-shell verify-shell">
       <header className="topbar verify-topbar">
@@ -1166,8 +1172,8 @@ export default function VerifyPage() {
         </button>
         <button className={activeTab === "review" ? "active" : ""} type="button" onClick={() => void openReviewWorkspace()}>
           <ScanText size={17} /> Review
-          {queueCases.filter((item) => needsHumanReview(item) && (!item.assignedToUserId || item.assignedToUserId === currentUser.userId)).length > 0 && (
-            <em>{queueCases.filter((item) => needsHumanReview(item) && (!item.assignedToUserId || item.assignedToUserId === currentUser.userId)).length}</em>
+          {reviewBadgeCount > 0 && (
+            <em>{reviewBadgeCount}</em>
           )}
         </button>
         <button className={activeTab === "settings" ? "active" : ""} type="button" onClick={openSettings}>
@@ -1230,7 +1236,7 @@ export default function VerifyPage() {
           onDownloadReport={() => void downloadQueueReport()}
           currentUser={currentUser}
           savedFilters={queuePreferences}
-          onFiltersChange={saveQueuePreferences}
+          onFiltersChange={setQueuePreferences}
           claimingCaseId={claimingCaseId}
           onClaimCase={(caseId) => void changeClaim(caseId, "claim")}
           onReleaseCase={(caseId) => void changeClaim(caseId, "release")}
@@ -1432,12 +1438,12 @@ export default function VerifyPage() {
                         {activeCase.automatedOutcome === "fail" ? <ThumbsDown size={16} /> : <ThumbsUp size={16} />} {activeCase.automatedOutcome === "fail" ? "Reject failure" : activeCase.automatedOutcome === "pass" ? "Accept pass" : "Mark pass"}
                       </button>
                       <button
-                        className={`${activeCase.decisionSource?.startsWith("human_") && activeCase.outcome === "fail" ? "selected " : ""}${activeCase.automatedOutcome === "pass" ? "fail" : activeCase.automatedOutcome === "fail" ? "pass" : "fail"}`}
+                        className={`${activeCase.decisionSource?.startsWith("human_") && activeCase.outcome === "fail" ? "selected " : ""}${activeCase.automatedOutcome === "fail" ? "pass" : "fail"}`}
                         type="button"
                         disabled={savingDecision || activeClaimedByAnotherReviewer}
                         onClick={() => void saveDecision("fail")}
                       >
-                        {activeCase.automatedOutcome === "pass" ? <ThumbsDown size={16} /> : activeCase.automatedOutcome === "fail" ? <ThumbsUp size={16} /> : <ThumbsDown size={16} />} {activeCase.automatedOutcome === "pass" ? "Reject pass" : activeCase.automatedOutcome === "fail" ? "Accept failure" : "Mark failure"}
+                        {activeCase.automatedOutcome === "fail" ? <ThumbsUp size={16} /> : <ThumbsDown size={16} />} {activeCase.automatedOutcome === "pass" ? "Reject pass" : activeCase.automatedOutcome === "fail" ? "Accept failure" : "Mark failure"}
                       </button>
                     </span>
                   </div>
@@ -1473,46 +1479,29 @@ export default function VerifyPage() {
                                 <span className="verify-rule-field" role="cell" title={rule.explanation}>{FIELD_LABELS[rule.fieldKey]}</span>
                                 <ResultGridValue fieldKey={rule.fieldKey} value={rule.expectedValue} />
                                 <ResultGridValue fieldKey={rule.fieldKey} value={rule.detectedValue} detected />
-                                <span className="verify-rule-status" role="cell" title={rule.explanation}>
-                                  {rule.automatedStatus === "matches" ? <CheckCircle2 size={20} /> : rule.automatedStatus === "discrepancy" ? <XCircle size={20} /> : <AlertTriangle size={20} />}
-                                  <span>
-                                    <b>{statusLabel(rule.automatedStatus)}</b>
-                                    {rule.automatedStatus === "review" && <small>{rule.explanation}</small>}
-                                  </span>
-                                </span>
+                                <StatusCell status={rule.automatedStatus} explanation={rule.explanation} />
                                 <span className="verify-evidence-cell" role="cell">
                                   {([
                                     { source: "vision", label: "LLM", name: "Gemini", ids: visionIds },
                                     { source: "ocr", label: "OCR", name: "Tesseract", ids: ocrIds },
                                   ] as const).filter((evidence) => (
                                     evidence.source === "vision" ? analysis.readerMode !== "ocr" : analysis.readerMode !== "llm"
-                                  )).map((evidence) => {
-                                    const located = evidence.ids.length > 0;
-                                    const pinned = evidence.ids.some((id) => pinnedEvidence.includes(id));
-                                    return (
-                                      <button
-                                        className={`source-${evidence.source}`}
-                                        key={evidence.source}
-                                        type="button"
-                                        disabled={!located}
-                                        aria-pressed={pinned}
-                                        aria-label={located ? `Inspect ${evidence.name} evidence for ${FIELD_LABELS[rule.fieldKey]}` : `No ${evidence.name} evidence located for ${FIELD_LABELS[rule.fieldKey]}`}
-                                        title={located ? `${evidence.name} box · hover to zoom, click to pin` : `${evidence.name} could not locate this text on the artwork`}
-                                        onMouseEnter={() => located && showHoveredEvidence(evidence.ids)}
-                                        onMouseLeave={clearHoveredEvidence}
-                                        onFocus={() => located && showHoveredEvidence(evidence.ids)}
-                                        onBlur={clearHoveredEvidence}
-                                        onClick={() => {
-                                          if (!located) return;
-                                          setHoverEvidence([]);
-                                          setPinnedEvidence(pinned ? [] : evidence.ids);
-                                        }}
-                                      >
-                                        <Eye size={18} />
-                                        <small>{evidence.label}</small>
-                                      </button>
-                                    );
-                                  })}
+                                  )).map((evidence) => (
+                                    <EvidenceButton
+                                      key={evidence.source}
+                                      source={evidence.source}
+                                      name={evidence.name}
+                                      label={evidence.label}
+                                      fieldLabel={FIELD_LABELS[rule.fieldKey]}
+                                      ids={evidence.ids}
+                                      pinned={evidence.ids.some((id) => pinnedEvidence.includes(id))}
+                                      locatedTitle={`${evidence.name} box · hover to zoom, click to pin`}
+                                      missingTitle={`${evidence.name} could not locate this text on the artwork`}
+                                      onShow={showHoveredEvidence}
+                                      onClear={clearHoveredEvidence}
+                                      onPin={pinEvidence}
+                                    />
+                                  ))}
                                 </span>
                               </div>
                             );
@@ -1528,39 +1517,26 @@ export default function VerifyPage() {
                             <span className="verify-rule-field" role="cell" title={rule.explanation}>{rule.label}</span>
                             <span className="verify-rule-value" role="cell" title={rule.expectedValue ?? ""}>{displayValue(rule.expectedValue)}</span>
                             <span className="verify-rule-value detected" role="cell" title={rule.detectedValue ?? ""}>{displayValue(rule.detectedValue)}</span>
-                            <span className="verify-rule-status" role="cell" title={rule.explanation}>
-                              {rule.automatedStatus === "matches" ? <CheckCircle2 size={20} /> : rule.automatedStatus === "discrepancy" ? <XCircle size={20} /> : <AlertTriangle size={20} />}
-                              <span><b>{statusLabel(rule.automatedStatus)}</b>{rule.automatedStatus === "review" && <small>{rule.explanation}</small>}</span>
-                            </span>
+                            <StatusCell status={rule.automatedStatus} explanation={rule.explanation} />
                             <span className="verify-evidence-cell" role="cell" title={rule.evidenceQuote ?? "The expected phrase was not found in the reader transcript."}>
                               {(() => {
                                 const ids = (rule.evidenceBlockIds ?? []).filter((id) => (evidenceRegionsById.get(id)?.boxes.length ?? 0) > 0);
-                                const located = ids.length > 0;
-                                const pinned = ids.some((id) => pinnedEvidence.includes(id));
                                 const source = analysis.readerMode === "ocr" ? "ocr" : "vision";
                                 const readerName = source === "ocr" ? "Tesseract" : "Gemini";
-                                const readerLabel = source === "ocr" ? "OCR" : "LLM";
                                 return (
-                                  <button
-                                    className={`source-${source}`}
-                                    type="button"
-                                    disabled={!located}
-                                    aria-pressed={pinned}
-                                    aria-label={located ? `Inspect ${readerName} evidence for ${rule.label}` : `No ${readerName} evidence located for ${rule.label}`}
-                                    title={located ? `${readerName} literal-text box · hover to zoom, click to pin` : `${readerName} could not uniquely locate the matched text`}
-                                    onMouseEnter={() => located && showHoveredEvidence(ids)}
-                                    onMouseLeave={clearHoveredEvidence}
-                                    onFocus={() => located && showHoveredEvidence(ids)}
-                                    onBlur={clearHoveredEvidence}
-                                    onClick={() => {
-                                      if (!located) return;
-                                      setHoverEvidence([]);
-                                      setPinnedEvidence(pinned ? [] : ids);
-                                    }}
-                                  >
-                                    <Eye size={18} />
-                                    <small>{readerLabel}</small>
-                                  </button>
+                                  <EvidenceButton
+                                    source={source}
+                                    name={readerName}
+                                    label={source === "ocr" ? "OCR" : "LLM"}
+                                    fieldLabel={rule.label}
+                                    ids={ids}
+                                    pinned={ids.some((id) => pinnedEvidence.includes(id))}
+                                    locatedTitle={`${readerName} literal-text box · hover to zoom, click to pin`}
+                                    missingTitle={`${readerName} could not uniquely locate the matched text`}
+                                    onShow={showHoveredEvidence}
+                                    onClear={clearHoveredEvidence}
+                                    onPin={pinEvidence}
+                                  />
                                 );
                               })()}
                             </span>

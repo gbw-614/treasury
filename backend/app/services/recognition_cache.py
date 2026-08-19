@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime
-from threading import RLock
+from pathlib import Path
+from threading import Lock, RLock
 from typing import Literal
 
 from pydantic import BaseModel
@@ -10,6 +12,9 @@ from app.services import case_store
 
 ReaderType = Literal["ocr", "llm"]
 CACHE_LOCK = RLock()
+
+_TABLE_LOCK = Lock()
+_INITIALIZED_DATABASES: set[Path] = set()
 
 
 def _now() -> str:
@@ -33,9 +38,19 @@ def _ensure_table(connection) -> None:
     )
 
 
+def _connect() -> sqlite3.Connection:
+    connection = case_store._connect()
+    resolved = case_store._paths()[0].resolve()
+    with _TABLE_LOCK:
+        if resolved not in _INITIALIZED_DATABASES:
+            _ensure_table(connection)
+            connection.commit()
+            _INITIALIZED_DATABASES.add(resolved)
+    return connection
+
+
 def get[ModelT: BaseModel](cache_key: str, model: type[ModelT]) -> ModelT | None:
-    with CACHE_LOCK, case_store._connect() as connection:
-        _ensure_table(connection)
+    with CACHE_LOCK, _connect() as connection:
         row = connection.execute(
             "SELECT result_json FROM verification_recognition_cache WHERE cache_key = ?",
             (cache_key,),
@@ -51,8 +66,7 @@ def get[ModelT: BaseModel](cache_key: str, model: type[ModelT]) -> ModelT | None
         return model.model_validate_json(row["result_json"])
     except (ValueError, TypeError):
         # A stale or corrupt entry is never allowed to break recognition.
-        with CACHE_LOCK, case_store._connect() as connection:
-            _ensure_table(connection)
+        with CACHE_LOCK, _connect() as connection:
             connection.execute(
                 "DELETE FROM verification_recognition_cache WHERE cache_key = ?", (cache_key,)
             )
@@ -68,8 +82,7 @@ def put(
     result: BaseModel,
 ) -> None:
     now = _now()
-    with CACHE_LOCK, case_store._connect() as connection:
-        _ensure_table(connection)
+    with CACHE_LOCK, _connect() as connection:
         connection.execute(
             """
             INSERT INTO verification_recognition_cache (
@@ -93,8 +106,7 @@ def put(
 
 
 def stats() -> dict[str, int]:
-    with CACHE_LOCK, case_store._connect() as connection:
-        _ensure_table(connection)
+    with CACHE_LOCK, _connect() as connection:
         rows = connection.execute(
             "SELECT reader_type, COUNT(*) AS count FROM verification_recognition_cache GROUP BY reader_type"
         ).fetchall()
@@ -106,7 +118,6 @@ def stats() -> dict[str, int]:
 
 def clear() -> dict[str, int]:
     before = stats()
-    with CACHE_LOCK, case_store._connect() as connection:
-        _ensure_table(connection)
+    with CACHE_LOCK, _connect() as connection:
         connection.execute("DELETE FROM verification_recognition_cache")
     return before

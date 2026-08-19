@@ -43,6 +43,17 @@ type EvidenceViewerProps = {
 
 type Bounds = { left: number; top: number; right: number; bottom: number };
 
+function fitMetrics(stageWidth: number, stageHeight: number, panel: EvidencePanel) {
+  const availableWidth = Math.max(stageWidth - 52, 160);
+  const availableHeight = Math.max(stageHeight - 52, 160);
+  const fitScale = Math.min(
+    availableWidth / panel.width,
+    availableHeight / panel.height,
+    1,
+  );
+  return { availableWidth, availableHeight, fitScale };
+}
+
 function boundsFor(regions: EvidenceRegion[]): Bounds | null {
   const boxes = regions.flatMap((region) => region.boxes);
   if (!boxes.length) return null;
@@ -134,13 +145,7 @@ export default function EvidenceViewer({
     const bounds = boundsFor(targetRegions);
     if (!bounds) return;
 
-    const availableWidth = Math.max(stageSize.width - 52, 160);
-    const availableHeight = Math.max(stageSize.height - 52, 160);
-    const fitScale = Math.min(
-      availableWidth / targetPanel.width,
-      availableHeight / targetPanel.height,
-      1,
-    );
+    const { availableWidth, availableHeight, fitScale } = fitMetrics(stageSize.width, stageSize.height, targetPanel);
     const boundsWidth = Math.max(bounds.right - bounds.left, 1);
     const boundsHeight = Math.max(bounds.bottom - bounds.top, 1);
     const targetZoom = Math.max(
@@ -186,13 +191,7 @@ export default function EvidenceViewer({
     return <section className="artwork-pane evidence-viewer-empty" aria-label={ariaLabel}>No artwork loaded.</section>;
   }
 
-  const availableWidth = Math.max(stageSize.width - 52, 160);
-  const availableHeight = Math.max(stageSize.height - 52, 160);
-  const fitScale = Math.min(
-    availableWidth / currentPanel.width,
-    availableHeight / currentPanel.height,
-    1,
-  );
+  const { fitScale } = fitMetrics(stageSize.width, stageSize.height, currentPanel);
   const surfaceWidth = Math.max(1, Math.round(currentPanel.width * fitScale * zoom));
   const surfaceHeight = Math.max(1, Math.round(currentPanel.height * fitScale * zoom));
 

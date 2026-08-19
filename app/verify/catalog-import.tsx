@@ -1,6 +1,7 @@
 import { CheckCircle2, CircleAlert, CloudDownload, LoaderCircle, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BeverageCategory, ReaderMode, SourceCatalogCase, SourceCatalogImportJob, SourceImportResult } from "../verification-types";
+import { categoryLabel, errorMessage } from "./shared";
 
 type CatalogImportProps = {
   apiUrl: string;
@@ -19,55 +20,33 @@ function isOfficial(entry: SourceCatalogCase) {
   return entry.sourceCaseId.startsWith("official-ttb-");
 }
 
-function categoryLabel(category: BeverageCategory | null) {
-  if (category === "distilled_spirits") return "Distilled spirits";
-  if (category === "malt_beverage") return "Malt beverage";
-  if (category === "wine") return "Wine";
-  return "All categories";
-}
-
 function categoryFrom(value: unknown): BeverageCategory | null {
   return value === "wine" || value === "distilled_spirits" || value === "malt_beverage" ? value : null;
 }
 
-/** Accept the documented API response and a couple of harmless envelope variations. */
+// Wire shape of GET /sources/s3/catalog (backend SourceCatalogResponse).
+type CatalogCaseAvailability = {
+  sourceCaseId: string;
+  displayName: string | null;
+  category: BeverageCategory | null;
+  panelCount: number;
+  alreadyImportedCaseId: string | null;
+};
+
 function catalogCases(payload: unknown): SourceCatalogCase[] {
-  if (!payload || typeof payload !== "object") return [];
-  const root = payload as Record<string, unknown>;
-  const candidates = Array.isArray(root.cases)
-    ? root.cases
-    : root.catalog && typeof root.catalog === "object" && Array.isArray((root.catalog as { cases?: unknown }).cases)
-      ? (root.catalog as { cases: unknown[] }).cases
-      : Array.isArray(root.entries) ? root.entries : [];
-  return candidates.flatMap((item): SourceCatalogCase[] => {
+  if (!payload || typeof payload !== "object" || !Array.isArray((payload as { cases?: unknown }).cases)) return [];
+  return (payload as { cases: unknown[] }).cases.flatMap((item): SourceCatalogCase[] => {
     if (!item || typeof item !== "object") return [];
-    const source = item as Record<string, unknown>;
-    const sourceCaseId = typeof source.sourceCaseId === "string" ? source.sourceCaseId
-      : typeof source.source_case_id === "string" ? source.source_case_id
-        : typeof source.caseId === "string" ? source.caseId : "";
-    if (!sourceCaseId) return [];
-    const expected = source.expected && typeof source.expected === "object" ? source.expected as SourceCatalogCase["expected"] : undefined;
-    const panels = Array.isArray(source.panels) ? source.panels.length : typeof source.panelCount === "number" ? source.panelCount : 0;
+    const source = item as Partial<CatalogCaseAvailability>;
+    if (typeof source.sourceCaseId !== "string" || !source.sourceCaseId) return [];
     return [{
-      sourceCaseId,
-      displayName: typeof source.displayName === "string" ? source.displayName : sourceCaseId,
+      sourceCaseId: source.sourceCaseId,
+      displayName: typeof source.displayName === "string" ? source.displayName : source.sourceCaseId,
       category: categoryFrom(source.category),
-      panelCount: panels,
-      alreadyImported: source.alreadyImported === true || source.imported === true || typeof source.alreadyImportedCaseId === "string",
-      expected,
-      description: typeof source.description === "string" ? source.description : undefined,
+      panelCount: typeof source.panelCount === "number" ? source.panelCount : 0,
+      alreadyImported: typeof source.alreadyImportedCaseId === "string",
     }];
   });
-}
-
-function errorDetail(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object" || !("detail" in payload)) return fallback;
-  const detail = (payload as { detail: unknown }).detail;
-  if (typeof detail === "string") return detail;
-  if (detail && typeof detail === "object" && "message" in detail && typeof (detail as { message: unknown }).message === "string") {
-    return (detail as { message: string }).message;
-  }
-  return fallback;
 }
 
 function importJob(payload: unknown): SourceCatalogImportJob | null {
@@ -106,7 +85,7 @@ export default function CatalogImport({ apiUrl, apiFetch, autoProcess, readerMod
     try {
       const response = await apiFetch(`${apiUrl}/api/v1/sources/s3/catalog`);
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(errorDetail(payload, response.status === 404 ? "A shared catalog is not configured for this workspace." : "The shared catalog could not be loaded."));
+      if (!response.ok) throw new Error(errorMessage(payload, response.status === 404 ? "A shared catalog is not configured for this workspace." : "The shared catalog could not be loaded."));
       const entries = catalogCases(payload);
       setCatalog(entries);
       setSourceFilter(entries.some(isOfficial) ? "official" : "all");
@@ -118,6 +97,20 @@ export default function CatalogImport({ apiUrl, apiFetch, autoProcess, readerMod
     }
   }, [apiFetch, apiUrl]);
 
+  const fetchJob = useCallback(async (jobId: string) => {
+    const response = await apiFetch(`${apiUrl}/api/v1/sources/s3/import-jobs/${jobId}`);
+    const payload = await response.json().catch(() => null);
+    return { payload, job: response.ok ? importJob(payload) : null };
+  }, [apiFetch, apiUrl]);
+
+  const finishJob = useCallback(async (finished: SourceCatalogImportJob) => {
+    setSummary(jobSummary(finished));
+    setImporting(false);
+    window.localStorage.removeItem(ACTIVE_JOB_KEY);
+    await onDone();
+    await load();
+  }, [load, onDone]);
+
   useEffect(() => {
     // The drawer is mounted on demand; initialize its external catalog and any
     // persisted server-side job exactly once for this mount.
@@ -126,53 +119,37 @@ export default function CatalogImport({ apiUrl, apiFetch, autoProcess, readerMod
     const savedJobId = window.localStorage.getItem(ACTIVE_JOB_KEY);
     if (!savedJobId) return;
     setImporting(true);
-    void apiFetch(`${apiUrl}/api/v1/sources/s3/import-jobs/${savedJobId}`).then(async (response) => {
-      const payload = await response.json().catch(() => null);
-      const restored = response.ok ? importJob(payload) : null;
+    void fetchJob(savedJobId).then(({ job: restored }) => {
       if (!restored) {
         window.localStorage.removeItem(ACTIVE_JOB_KEY);
         setImporting(false);
         return;
       }
       setJob(restored);
-      if (restored.status === "complete" || restored.status === "failed") {
-        setSummary(jobSummary(restored));
-        setImporting(false);
-        window.localStorage.removeItem(ACTIVE_JOB_KEY);
-        void onDone();
-        void load();
-      }
+      if (restored.status === "complete" || restored.status === "failed") void finishJob(restored);
     });
-  }, [apiFetch, apiUrl, load, onDone]); // The drawer is mounted afresh each time it opens.
+  }, [fetchJob, finishJob, load]); // The drawer is mounted afresh each time it opens.
 
   useEffect(() => {
     if (!job || (job.status !== "queued" && job.status !== "running")) return;
     const timer = window.setTimeout(() => {
-      void apiFetch(`${apiUrl}/api/v1/sources/s3/import-jobs/${job.jobId}`).then(async (response) => {
-        const payload = await response.json().catch(() => null);
-        const nextJob = response.ok ? importJob(payload) : null;
+      void fetchJob(job.jobId).then(async ({ payload, job: nextJob }) => {
         if (!nextJob) {
-          setError(errorDetail(payload, "Import progress could not be loaded."));
+          setError(errorMessage(payload, "Import progress could not be loaded."));
           // Keep the job active and retry; a transient polling error does not
           // mean the server stopped processing the import.
           setJob((current) => current ? { ...current } : current);
           return;
         }
         setJob(nextJob);
-        if (nextJob.status === "complete" || nextJob.status === "failed") {
-          setSummary(jobSummary(nextJob));
-          setImporting(false);
-          window.localStorage.removeItem(ACTIVE_JOB_KEY);
-          await onDone();
-          await load();
-        }
+        if (nextJob.status === "complete" || nextJob.status === "failed") await finishJob(nextJob);
       }).catch(() => {
         setError("Import progress could not be loaded. The server may still be processing the import.");
         setJob((current) => current ? { ...current } : current);
       });
     }, 650);
     return () => window.clearTimeout(timer);
-  }, [job, apiUrl, apiFetch, load, onDone]);
+  }, [job, fetchJob, finishJob]);
 
   const filtered = useMemo(() => {
     return catalog.filter((entry) => {
@@ -208,7 +185,7 @@ export default function CatalogImport({ apiUrl, apiFetch, autoProcess, readerMod
         body: JSON.stringify({ sourceCaseIds: requested.map((entry) => entry.sourceCaseId), autoProcess, readerMode }),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(errorDetail(payload, "The selected catalog cases could not be imported."));
+      if (!response.ok) throw new Error(errorMessage(payload, "The selected catalog cases could not be imported."));
       const nextJob = importJob(payload);
       if (!nextJob) throw new Error("The server did not return a valid import job.");
       setJob(nextJob);
@@ -234,7 +211,7 @@ export default function CatalogImport({ apiUrl, apiFetch, autoProcess, readerMod
         {filtered.length ? filtered.map((entry) => <li className={entry.alreadyImported ? "already-imported" : ""} key={entry.sourceCaseId}>
           <label>
             <input type="checkbox" disabled={entry.alreadyImported} checked={selected.has(entry.sourceCaseId)} onChange={() => setSelected((current) => { const next = new Set(current); if (next.has(entry.sourceCaseId)) next.delete(entry.sourceCaseId); else next.add(entry.sourceCaseId); return next; })} />
-            <span><b>{entry.displayName}</b><small>{categoryLabel(entry.category)} · {entry.panelCount || 1} {entry.panelCount === 1 ? "panel" : "panels"}</small>{entry.expected?.brandName && <em>{entry.expected.brandName}{entry.expected.classType ? ` · ${entry.expected.classType}` : ""}</em>}</span>
+            <span><b>{entry.displayName}</b><small>{categoryLabel(entry.category, "All categories")} · {entry.panelCount || 1} {entry.panelCount === 1 ? "panel" : "panels"}</small>{entry.expected?.brandName && <em>{entry.expected.brandName}{entry.expected.classType ? ` · ${entry.expected.classType}` : ""}</em>}</span>
           </label>
           {entry.alreadyImported ? <i><CheckCircle2 size={14} /> Imported</i> : <span className="catalog-entry-state">Available</span>}
         </li>) : <li className="catalog-no-results">No catalog cases match these filters.</li>}

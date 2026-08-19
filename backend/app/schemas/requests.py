@@ -7,7 +7,7 @@ from pydantic import Field, model_validator
 
 from app.field_library import get_field_definition
 
-from .common import BeverageCategory, ContractModel
+from .common import BeverageCategory, ContractModel, migrate_legacy_reader_mode
 
 ShortText = Annotated[str, Field(min_length=1, max_length=250)]
 
@@ -90,14 +90,9 @@ class AnalysisRequest(ContractModel):
         """Read old queued/catalog requests while dropping retired options."""
         if isinstance(value, dict) and "facts" in value:
             value = {key: item for key, item in value.items() if key != "facts"}
-        if isinstance(value, dict):
-            value = dict(value)
-            key = "readerMode" if "readerMode" in value else "reader_mode"
-            if value.get(key) == "both":
-                # Historical queued work used the dual-reader mode. New work
-                # has exactly one authoritative reader; retain the LLM path.
-                value[key] = "llm"
-        return value
+        # Historical queued work used the dual-reader mode. New work has
+        # exactly one authoritative reader; retain the LLM path.
+        return migrate_legacy_reader_mode(value)
 
     @model_validator(mode="after")
     def validate_panels(self) -> AnalysisRequest:

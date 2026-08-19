@@ -214,6 +214,17 @@ function fieldLibraryChecks(value: unknown): FieldLibraryCheck[] {
   return checks;
 }
 
+function importDisplayName(input: Record<string, unknown>, brandFallback: string | null | undefined) {
+  for (const value of [input.displayName, input.applicationId, input.title]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return brandFallback ?? "Imported COLA case";
+}
+
+function importPanels(artworkFiles: string[]) {
+  return artworkFiles.map((file, index) => ({ panelId: `p${String(index + 1).padStart(2, "0")}`, file }));
+}
+
 export function parseCaseImport(payload: unknown, artworkFile: string | string[]): ImportedCase {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("The application file must contain a JSON object.");
@@ -237,22 +248,14 @@ export function parseCaseImport(payload: unknown, artworkFile: string | string[]
   if (isV2Import) {
     const checks = fieldLibraryChecks(input.checks);
     const brand = checks.find((check) => check.fieldId === "brand_name")?.expectedValue;
-    const displayName =
-      typeof input.displayName === "string" && input.displayName.trim()
-        ? input.displayName.trim()
-        : typeof input.applicationId === "string" && input.applicationId.trim()
-          ? input.applicationId.trim()
-          : typeof input.title === "string" && input.title.trim()
-            ? input.title.trim()
-            : brand ?? "Imported COLA case";
     return {
-      displayName,
+      displayName: importDisplayName(input, brand),
       request: {
         schemaVersion: "verification-request-v2",
         caseReference,
         category: parsedCategory,
         checks,
-        panels: artworkFiles.map((file, index) => ({ panelId: `p${String(index + 1).padStart(2, "0")}`, file })),
+        panels: importPanels(artworkFiles),
       },
     };
   }
@@ -263,25 +266,14 @@ export function parseCaseImport(payload: unknown, artworkFile: string | string[]
   const proof = optionalNumber(expected.proof, "expected.proof", 200);
   const parsedGovernmentWarning = governmentWarning(expected.governmentWarning ?? expected.government_warning);
   const parsedAdditionalFields = additionalFields(expected.additionalFields ?? expected.additional_fields);
-  const displayName =
-    typeof input.displayName === "string" && input.displayName.trim()
-      ? input.displayName.trim()
-      : typeof input.applicationId === "string" && input.applicationId.trim()
-        ? input.applicationId.trim()
-        : typeof input.title === "string" && input.title.trim()
-          ? input.title.trim()
-          : brandName ?? "Imported COLA case";
   return {
-    displayName,
+    displayName: importDisplayName(input, brandName),
     request: {
       schemaVersion: "verification-request-v1",
       caseReference,
       category: parsedCategory,
       expected: { brandName, classType, abvPercent, proof, governmentWarning: parsedGovernmentWarning, additionalFields: parsedAdditionalFields },
-      panels: artworkFiles.map((file, index) => ({
-        panelId: `p${String(index + 1).padStart(2, "0")}`,
-        file,
-      })),
+      panels: importPanels(artworkFiles),
     },
   };
 }

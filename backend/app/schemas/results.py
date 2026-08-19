@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 from pydantic import Field, model_validator
 
 from .common import ContractModel, FieldKey, StageDuration
+from .common import migrate_legacy_reader_mode as _migrate_legacy_reader_mode
 from .evidence import LocalizationResult, OcrRun, ValidatedPanel
 from .extraction import VisionRun
 
@@ -93,13 +94,7 @@ class AnalysisResponse(ContractModel):
     @model_validator(mode="before")
     @classmethod
     def migrate_legacy_reader_mode(cls, value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        migrated = dict(value)
-        key = "readerMode" if "readerMode" in migrated else "reader_mode"
-        if migrated.get(key) == "both":
-            migrated[key] = "llm"
-        return migrated
+        return _migrate_legacy_reader_mode(value)
 
     @model_validator(mode="after")
     def validate_evidence_references(self) -> AnalysisResponse:

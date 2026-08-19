@@ -23,6 +23,7 @@ from app.schemas import (
     AutomatedStatus,
     BeverageCategory,
     BoundingBox,
+    ExpectedValues,
     FieldKey,
     LocalizationResult,
     LocationStatus,
@@ -46,26 +47,17 @@ from app.services.tesseract_ocr import cache_identity as ocr_cache_identity
 from app.services.tesseract_ocr import run_tesseract
 
 
-def _ocr_concurrency() -> int:
-    """Bound Tesseract workers even when one analysis contains many panels."""
+def _env_concurrency(name: str, default: int) -> int:
+    """Bound concurrent readers even when one analysis contains many panels."""
     try:
-        return max(1, int(os.getenv("VERIFICATION_OCR_CONCURRENCY", "1")))
+        return max(1, int(os.getenv(name, str(default))))
     except ValueError:
-        return 1
+        return default
 
 
-OCR_SEMAPHORE = asyncio.Semaphore(_ocr_concurrency())
+OCR_SEMAPHORE = asyncio.Semaphore(_env_concurrency("VERIFICATION_OCR_CONCURRENCY", 1))
 
-
-def _vision_concurrency() -> int:
-    """Bound concurrent provider calls, including panels within one case."""
-    try:
-        return max(1, int(os.getenv("VERIFICATION_VISION_CONCURRENCY", "3")))
-    except ValueError:
-        return 3
-
-
-VISION_SEMAPHORE = asyncio.Semaphore(_vision_concurrency())
+VISION_SEMAPHORE = asyncio.Semaphore(_env_concurrency("VERIFICATION_VISION_CONCURRENCY", 3))
 
 
 def _cache_key(reader_type: str, image_sha256: str, reader_version: str) -> str:
@@ -139,15 +131,8 @@ async def _run_vision_limited(content: bytes, panel: ValidatedPanel) -> VisionRu
 RULE_VERSION = "deterministic-comparison-v1"
 
 
-def _normalized_words(value: str) -> str:
-    # Ampersand and the word "and" are semantically equivalent in product
-    # names/types, while punctuation elsewhere remains available for stricter
-    # field-specific checks.
-    return " ".join(re.findall(r"[a-z0-9]+", value.casefold().replace("&", " and ")))
-
-
 def _normalized_word_tuple(value: str) -> tuple[str, ...]:
-    return tuple(_normalized_words(value).split())
+    return tuple(normalize_text(value).split())
 
 
 def _contains_expected_phrase(expected: str, detected: str) -> bool:
@@ -207,6 +192,29 @@ def _number(value: str | float | None) -> float | None:
     return float(match.group()) if match else None
 
 
+def _expected_by_field(expected: ExpectedValues) -> dict[FieldKey, str | None]:
+    """Map each legacy field key to its user-supplied expected text."""
+    return {
+        FieldKey.BRAND_NAME: expected.brand_name,
+        FieldKey.CLASS_TYPE: expected.class_type,
+        FieldKey.ALCOHOL_CONTENT: (
+            str(expected.abv_percent) if expected.abv_percent is not None else None
+        ),
+        FieldKey.PROOF: str(expected.proof) if expected.proof is not None else None,
+        FieldKey.GOVERNMENT_WARNING_HEADING: (
+            expected.government_warning.heading if expected.government_warning else None
+        ),
+        FieldKey.GOVERNMENT_WARNING_BODY: (
+            expected.government_warning.body if expected.government_warning else None
+        ),
+    }
+
+
+def _proof_applies(request: AnalysisRequest) -> bool:
+    """Proof statements are compared only for distilled spirits."""
+    return request.category == BeverageCategory.DISTILLED_SPIRITS
+
+
 def _candidate_map(
     vision: VisionRun,
     request: AnalysisRequest | None = None,
@@ -229,14 +237,12 @@ def _candidate_map(
     # contains the supplied phrase over the first equally legible semantic
     # classification returned from another panel.
     if request is not None and request.expected is not None:
-        expected_by_field = {
-            FieldKey.BRAND_NAME: request.expected.brand_name,
-            FieldKey.CLASS_TYPE: request.expected.class_type,
-        }
+        expected_by_field = _expected_by_field(request.expected)
         all_candidates = tuple(
             candidate for panel in vision.panels for candidate in panel.fields
         )
-        for field_key, expected in expected_by_field.items():
+        for field_key in (FieldKey.BRAND_NAME, FieldKey.CLASS_TYPE):
+            expected = expected_by_field[field_key]
             if not expected:
                 continue
             matching = next(
@@ -314,142 +320,90 @@ def _base_rule(
         if candidate and include_localization
         else ()
     )
+
+    def result(
+        status: AutomatedStatus,
+        reason_code: str,
+        explanation: str,
+        *,
+        applicable: bool = True,
+        requires_human_review: bool = True,
+        **overrides: object,
+    ) -> RuleResult:
+        kwargs: dict[str, object] = {
+            "rule_id": f"{field_key.value}-comparison",
+            "rule_version": RULE_VERSION,
+            "field_key": field_key,
+            "applicable": applicable,
+            "automated_status": status,
+            "expected_value": expected_value,
+            "detected_value": detected,
+            "evidence_quote": candidate.evidence_quote if candidate else None,
+            "localization_ids": localization_ids,
+            "reason_code": reason_code,
+            "explanation": explanation,
+            "requires_human_review": requires_human_review,
+        }
+        kwargs.update(overrides)
+        return RuleResult(**kwargs)
+
     if not applicable or expected_value is None:
-        return RuleResult(
-            rule_id=f"{field_key.value}-comparison",
-            rule_version=RULE_VERSION,
-            field_key=field_key,
+        return result(
+            AutomatedStatus.DOES_NOT_APPLY,
+            "not_applicable",
+            "No expected value was supplied for this field.",
             applicable=False,
-            automated_status=AutomatedStatus.DOES_NOT_APPLY,
-            expected_value=None,
-            detected_value=detected,
-            evidence_quote=candidate.evidence_quote if candidate else None,
-            localization_ids=localization_ids,
-            reason_code="not_applicable",
-            explanation="No expected value was supplied for this field.",
             requires_human_review=False,
+            expected_value=None,
         )
     if candidate is None:
-        status = (
+        return result(
             AutomatedStatus.DISCREPANCY
             if missing_is_discrepancy
-            else AutomatedStatus.REVIEW
-        )
-        return RuleResult(
-            rule_id=f"{field_key.value}-comparison",
-            rule_version=RULE_VERSION,
-            field_key=field_key,
-            applicable=True,
-            automated_status=status,
-            expected_value=expected_value,
+            else AutomatedStatus.REVIEW,
+            "required_text_missing"
+            if missing_is_discrepancy
+            else "vision_evidence_unavailable",
+            "The selected reader found readable label text but no required warning text."
+            if missing_is_discrepancy
+            else "The vision reader did not return dependable evidence for this field.",
             detected_value=None,
-            evidence_quote=None,
-            reason_code=(
-                "required_text_missing"
-                if missing_is_discrepancy
-                else "vision_evidence_unavailable"
-            ),
-            explanation=(
-                "The selected reader found readable label text but no required warning text."
-                if missing_is_discrepancy
-                else "The vision reader did not return dependable evidence for this field."
-            ),
-            requires_human_review=True,
         )
     if candidate.legibility != "clear":
-        return RuleResult(
-            rule_id=f"{field_key.value}-comparison",
-            rule_version=RULE_VERSION,
-            field_key=field_key,
-            applicable=True,
-            automated_status=AutomatedStatus.REVIEW,
-            expected_value=expected_value,
-            detected_value=detected,
-            evidence_quote=candidate.evidence_quote,
-            localization_ids=localization_ids,
-            reason_code="vision_evidence_uncertain",
-            explanation=candidate.uncertainty or "The vision reader marked this text uncertain.",
-            requires_human_review=True,
+        return result(
+            AutomatedStatus.REVIEW,
+            "vision_evidence_uncertain",
+            candidate.uncertainty or "The vision reader marked this text uncertain.",
         )
     if formatting_discrepancy:
-        return RuleResult(
-            rule_id=f"{field_key.value}-comparison",
-            rule_version=RULE_VERSION,
-            field_key=field_key,
-            applicable=True,
-            automated_status=AutomatedStatus.REVIEW,
-            expected_value=expected_value,
-            detected_value=detected,
-            evidence_quote=candidate.evidence_quote,
-            localization_ids=localization_ids,
-            reason_code="warning_presentation_noncompliant",
-            explanation=formatting_discrepancy,
-            requires_human_review=True,
+        return result(
+            AutomatedStatus.REVIEW,
+            "warning_presentation_noncompliant",
+            formatting_discrepancy,
         )
     if formatting_requires_review:
-        return RuleResult(
-            rule_id=f"{field_key.value}-comparison",
-            rule_version=RULE_VERSION,
-            field_key=field_key,
-            applicable=True,
-            automated_status=AutomatedStatus.REVIEW,
-            expected_value=expected_value,
-            detected_value=detected,
-            evidence_quote=candidate.evidence_quote,
-            localization_ids=localization_ids,
-            reason_code="warning_presentation_uncertain",
-            explanation=(
-                formatting_review_explanation
-                or "The warning presentation could not be confirmed automatically."
-            ),
-            requires_human_review=True,
+        return result(
+            AutomatedStatus.REVIEW,
+            "warning_presentation_uncertain",
+            formatting_review_explanation
+            or "The warning presentation could not be confirmed automatically.",
         )
     if require_ocr_location and location.status != LocationStatus.LOCATED:
-        return RuleResult(
-            rule_id=f"{field_key.value}-comparison",
-            rule_version=RULE_VERSION,
-            field_key=field_key,
-            applicable=True,
-            automated_status=AutomatedStatus.REVIEW,
-            expected_value=expected_value,
-            detected_value=detected,
-            evidence_quote=candidate.evidence_quote,
-            localization_ids=localization_ids,
-            reason_code=location.status.value,
-            explanation="Tesseract could not uniquely locate the detected text on the artwork.",
-            requires_human_review=True,
+        return result(
+            AutomatedStatus.REVIEW,
+            location.status.value,
+            "Tesseract could not uniquely locate the detected text on the artwork.",
         )
     if matches is None:
-        return RuleResult(
-            rule_id=f"{field_key.value}-comparison",
-            rule_version=RULE_VERSION,
-            field_key=field_key,
-            applicable=True,
-            automated_status=AutomatedStatus.REVIEW,
-            expected_value=expected_value,
-            detected_value=detected,
-            evidence_quote=candidate.evidence_quote,
-            localization_ids=localization_ids,
-            reason_code="detected_value_unparseable",
-            explanation="The detected evidence could not be normalized for comparison.",
-            requires_human_review=True,
+        return result(
+            AutomatedStatus.REVIEW,
+            "detected_value_unparseable",
+            "The detected evidence could not be normalized for comparison.",
         )
-    return RuleResult(
-        rule_id=f"{field_key.value}-comparison",
-        rule_version=RULE_VERSION,
-        field_key=field_key,
-        applicable=True,
-        automated_status=(AutomatedStatus.MATCHES if matches else AutomatedStatus.REVIEW),
-        expected_value=expected_value,
-        detected_value=detected,
-        evidence_quote=candidate.evidence_quote,
-        localization_ids=localization_ids,
-        reason_code=match_reason_code if matches else "detected_value_differs",
-        explanation=(
-            match_explanation
-            if matches
-            else mismatch_explanation
-        ),
+    return result(
+        AutomatedStatus.MATCHES if matches else AutomatedStatus.REVIEW,
+        match_reason_code if matches else "detected_value_differs",
+        match_explanation if matches else mismatch_explanation,
         requires_human_review=not matches,
     )
 
@@ -474,7 +428,7 @@ def _rules(
             str(candidate.normalized_value or candidate.raw_text) if candidate else None
         )
         matches = (
-            _normalized_words(str(expected_value)) == _normalized_words(detected)
+            normalize_text(str(expected_value)) == normalize_text(detected)
             if detected
             else None
         )
@@ -538,8 +492,7 @@ def _rules(
         (
             FieldKey.PROOF,
             expected.proof,
-            request.category == BeverageCategory.DISTILLED_SPIRITS
-            and expected.proof is not None,
+            _proof_applies(request) and expected.proof is not None,
         ),
     ):
         candidate = candidates.get(field_key)
@@ -739,19 +692,21 @@ def _vision_block_ids(panel: VisionPanelExtraction, quote: str | None) -> tuple[
     """Find the smallest consecutive literal-block span supporting a quote."""
     if not quote or not panel.text_blocks:
         return ()
-    target = " ".join(re.findall(r"[a-z0-9]+", quote.casefold().replace("&", " and ")))
+    target = normalize_text(quote)
     if not target:
         return ()
     blocks = tuple(sorted(panel.text_blocks, key=lambda block: block.reading_order))
+    # Blocks are joined with a space, which normalization treats as a word
+    # boundary, so normalizing each block once and joining the non-empty parts
+    # is equivalent to normalizing the joined text.
+    normalized_blocks = tuple(normalize_text(block.text) for block in blocks)
     for width in range(1, len(blocks) + 1):
         for start in range(len(blocks) - width + 1):
-            selected = blocks[start : start + width]
-            combined = " ".join(block.text for block in selected)
             normalized = " ".join(
-                re.findall(r"[a-z0-9]+", combined.casefold().replace("&", " and "))
+                part for part in normalized_blocks[start : start + width] if part
             )
             if target in normalized:
-                return tuple(block.block_id for block in selected)
+                return tuple(block.block_id for block in blocks[start : start + width])
     return ()
 
 
@@ -817,38 +772,23 @@ def _legacy_candidates_from_literal_blocks(
     """Derive v1 candidates locally so the model never assigns semantic roles."""
     if request.expected is None or not any(panel.text_blocks for panel in vision.panels):
         return vision
-    expected = request.expected
-    checks: tuple[tuple[FieldKey, str, str | None], ...] = (
-        (FieldKey.BRAND_NAME, "brand_name", expected.brand_name),
-        (FieldKey.CLASS_TYPE, "class_type", expected.class_type),
-        (
-            FieldKey.ALCOHOL_CONTENT,
-            "alcohol_content",
-            str(expected.abv_percent) if expected.abv_percent is not None else None,
-        ),
-        (
-            FieldKey.PROOF,
-            "proof",
-            str(expected.proof) if expected.proof is not None else None,
-        ),
-        (
-            FieldKey.GOVERNMENT_WARNING_HEADING,
-            "brand_name",
-            expected.government_warning.heading if expected.government_warning else None,
-        ),
-        (
-            FieldKey.GOVERNMENT_WARNING_BODY,
-            "brand_name",
-            expected.government_warning.body if expected.government_warning else None,
-        ),
-    )
+    # The warning fields reuse the plain-text `brand_name` definition: they are
+    # literal-phrase checks against the expected wording, not warning checks.
+    definition_ids = {
+        FieldKey.BRAND_NAME: "brand_name",
+        FieldKey.CLASS_TYPE: "class_type",
+        FieldKey.ALCOHOL_CONTENT: "alcohol_content",
+        FieldKey.PROOF: "proof",
+        FieldKey.GOVERNMENT_WARNING_HEADING: "brand_name",
+        FieldKey.GOVERNMENT_WARNING_BODY: "brand_name",
+    }
     fields_by_panel: dict[str, list[VisionFieldCandidate]] = {
         panel.panel_id: [] for panel in vision.panels
     }
-    for field_key, definition_id, expected_value in checks:
+    for field_key, expected_value in _expected_by_field(request.expected).items():
         if expected_value is None:
             continue
-        definition = get_field_definition(definition_id)
+        definition = get_field_definition(definition_ids[field_key])
         for panel in vision.panels:
             evaluation = evaluate_check(definition, panel.full_text, expected_value)
             if not evaluation.matched or not evaluation.evidence_quote:
@@ -1093,45 +1033,19 @@ def _library_rules(
     return tuple(results)
 
 
-def recompare_analysis(
-    request: AnalysisRequest,
-    previous: AnalysisResponse,
-) -> AnalysisResponse:
-    """Re-run deterministic comparison without another OCR/model call.
-
-    The raw vision and OCR runs remain byte-for-byte equivalent model objects;
-    only deterministic candidate selection, alignment, and rule results are rebuilt.
-    """
-
-    started = time.perf_counter()
-    ocr_runs = previous.ocr_runs or (previous.ocr_run,)
-    vision = previous.vision_run
-    if previous.reader_mode == "ocr":
-        surrogate = _ocr_surrogate_vision(request, previous.panels, ocr_runs)
-        # Rebuild the expected-value-backed OCR candidates, while retaining
-        # the immutable reader provenance/hash from the original analysis.
-        vision = previous.vision_run.model_copy(update={"panels": surrogate.panels})
-    elif request.schema_version == "verification-request-v1":
-        vision = _legacy_candidates_from_literal_blocks(request, vision)
-    candidates = _candidate_map(vision, request)
-    locations = _localizations(
-        previous.panels[0],
-        candidates,
-        {run.panel_id: run for run in ocr_runs},
-    )
-    if request.schema_version == "verification-request-v2":
-        rules = ()
-        additional_rules = _library_rules(request, vision)
-    else:
-        rules = _rules(request, vision, locations)
-        additional_rules = _additional_rules(request, vision)
+def _overall_summary(
+    rules: tuple[RuleResult, ...],
+    additional_rules: tuple[AdditionalRuleResult, ...],
+) -> OverallSummary:
     if any(rule.automated_status == AutomatedStatus.DISCREPANCY for rule in rules):
-        overall = OverallSummary.AUTOMATED_DISCREPANCY
-    elif any(rule.automated_status == AutomatedStatus.REVIEW for rule in (*rules, *additional_rules)):
-        overall = OverallSummary.NEEDS_REVIEW
-    else:
-        overall = OverallSummary.NO_AUTOMATED_DISCREPANCY
-    review_tasks = tuple(
+        return OverallSummary.AUTOMATED_DISCREPANCY
+    if any(rule.automated_status == AutomatedStatus.REVIEW for rule in (*rules, *additional_rules)):
+        return OverallSummary.NEEDS_REVIEW
+    return OverallSummary.NO_AUTOMATED_DISCREPANCY
+
+
+def _review_tasks(rules: tuple[RuleResult, ...]) -> tuple[ReviewTask, ...]:
+    return tuple(
         ReviewTask(
             field_key=rule.field_key,
             reason_code=rule.reason_code,
@@ -1148,21 +1062,6 @@ def recompare_analysis(
         )
         for rule in rules
         if rule.requires_human_review
-    )
-    comparison_ms = (time.perf_counter() - started) * 1000
-    return previous.model_copy(
-        update={
-            "analysis_id": str(uuid4()),
-            "vision_run": vision,
-            "localizations": locations,
-            "rule_results": rules,
-            "additional_rule_results": additional_rules,
-            "review_tasks": review_tasks,
-            "overall_summary": overall,
-            "stage_durations": previous.stage_durations
-            + (StageDuration(stage="application_data_recomparison", milliseconds=comparison_ms),),
-            "total_duration_ms": previous.total_duration_ms + comparison_ms,
-        }
     )
 
 
@@ -1272,26 +1171,10 @@ def _ocr_surrogate_vision(
             duration_ms=sum(run.preprocessing_duration_ms + run.ocr_duration_ms for run in ocr_runs),
         )
     assert request.expected is not None
-    expected_by_field: dict[FieldKey, str | None] = {
-        FieldKey.BRAND_NAME: request.expected.brand_name,
-        FieldKey.CLASS_TYPE: request.expected.class_type,
-        FieldKey.ALCOHOL_CONTENT: str(request.expected.abv_percent) if request.expected.abv_percent is not None else None,
-        FieldKey.PROOF: str(request.expected.proof) if request.expected.proof is not None else None,
-        FieldKey.GOVERNMENT_WARNING_HEADING: (
-            request.expected.government_warning.heading
-            if request.expected.government_warning
-            else None
-        ),
-        FieldKey.GOVERNMENT_WARNING_BODY: (
-            request.expected.government_warning.body
-            if request.expected.government_warning
-            else None
-        ),
-    }
     by_panel = {run.panel_id: run for run in ocr_runs}
     fields_by_panel: dict[str, list[VisionFieldCandidate]] = {panel.panel_id: [] for panel in panels}
-    for field_key, quote in expected_by_field.items():
-        if quote is None or (field_key == FieldKey.PROOF and request.category != BeverageCategory.DISTILLED_SPIRITS):
+    for field_key, quote in _expected_by_field(request.expected).items():
+        if quote is None or (field_key == FieldKey.PROOF and not _proof_applies(request)):
             continue
         matches = [
             align_quote(field_key=field_key, quote=quote, panel_id=panel.panel_id, ocr_run=by_panel[panel.panel_id])
@@ -1403,38 +1286,13 @@ async def run_connected_analysis(
         additional_rules = _additional_rules(request, vision)
     rules_duration = (time.perf_counter() - rules_started) * 1000
 
-    if any(rule.automated_status == AutomatedStatus.DISCREPANCY for rule in rules):
-        overall = OverallSummary.AUTOMATED_DISCREPANCY
-    elif any(rule.automated_status == AutomatedStatus.REVIEW for rule in (*rules, *additional_rules)):
-        overall = OverallSummary.NEEDS_REVIEW
-    else:
-        overall = OverallSummary.NO_AUTOMATED_DISCREPANCY
-
-    review_tasks = tuple(
-        ReviewTask(
-            field_key=rule.field_key,
-            reason_code=rule.reason_code,
-            message=(
-                "Confirm the detected discrepancy against the artwork."
-                if rule.reason_code in {
-                    "detected_value_differs",
-                    "warning_presentation_noncompliant",
-                    "required_text_missing",
-                }
-                else "Review this field because the selected reader did not produce dependable evidence."
-            ),
-            localization_ids=rule.localization_ids,
-        )
-        for rule in rules
-        if rule.requires_human_review
-    )
     total_duration = (time.perf_counter() - started) * 1000
     return AnalysisResponse(
         schema_version="analysis-response-v1",
         analysis_id=str(uuid4()),
         mode="connected",
         reader_mode=request.reader_mode,
-        overall_summary=overall,
+        overall_summary=_overall_summary(rules, additional_rules),
         panels=normalized_panels,
         vision_run=vision,
         ocr_run=ocr_runs[0],
@@ -1442,7 +1300,7 @@ async def run_connected_analysis(
         localizations=locations,
         rule_results=rules,
         additional_rule_results=additional_rules,
-        review_tasks=review_tasks,
+        review_tasks=_review_tasks(rules),
         stage_durations=(
             StageDuration(
                 stage="ocr_preprocessing",

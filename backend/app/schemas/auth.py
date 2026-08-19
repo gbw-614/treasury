@@ -22,11 +22,6 @@ class CurrentUser(ContractModel):
     created_at: datetime
 
 
-class LoginResponse(ContractModel):
-    user: CurrentUser
-    expires_at: datetime
-
-
 class SessionConflictResponse(ContractModel):
     code: Literal["active_session_exists"] = "active_session_exists"
     message: str = "This account is active elsewhere. Continue to sign out the other session."
