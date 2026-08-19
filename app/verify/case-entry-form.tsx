@@ -1,5 +1,6 @@
 import { AlertTriangle, LoaderCircle, ShieldCheck, UploadCloud } from "lucide-react";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import type { BatchImportPreview } from "./import-case";
 
 export type FileImportProgress = {
@@ -113,9 +114,9 @@ export default function CaseEntryForm({
         </section>
       )}
       <div className="verify-disclosure"><ShieldCheck size={15} /><span><b>Connected analysis</b>The Python service runs the selected reader. LLM mode sends only the artwork—not the expected values—to the configured vision provider.</span></div>
-      {importProgress && (
-        <div className="file-import-progress-overlay" role="presentation">
-          <section className="file-import-progress-dialog" role="status" aria-live="polite" aria-labelledby="file-import-progress-title">
+      {importProgress && createPortal(
+        <div className="file-import-progress-overlay" role="dialog" aria-modal="true" aria-labelledby="file-import-progress-title">
+          <section className="file-import-progress-dialog" aria-live="polite">
             <LoaderCircle className="spin" size={25} />
             <span className="eyebrow">File import</span>
             <h2 id="file-import-progress-title">{importProgress.phase === "adding" ? "Adding cases to the queue" : "Starting recognition"}</h2>
@@ -123,7 +124,8 @@ export default function CaseEntryForm({
             <strong>{importProgress.completed} of {importProgress.total}</strong>
             <div className="file-import-progress-track" aria-hidden="true"><span style={{ width: `${importProgress.total ? (importProgress.completed / importProgress.total) * 100 : 0}%` }} /></div>
           </section>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

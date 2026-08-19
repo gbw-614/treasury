@@ -763,6 +763,10 @@ export default function VerifyPage() {
     setError("");
     setImportSummary("");
     try {
+      // Let React paint the modal before the first file upload starts. Without
+      // this yield, a large batch can make the browser appear unresponsive
+      // while it prepares the first request.
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       for (const [index, pair] of preview.ready.entries()) {
         try {
           // Bulk import is deliberately two-phase. Creating every item first
