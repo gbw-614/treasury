@@ -64,11 +64,6 @@ const DEFAULT_QUEUE_PREFERENCES: QueuePreferences = {
 
 type ReviewWorkspaceFilter = QueuePreferences["reviewWorkspaceFilter"];
 
-const CANONICAL_WARNING = {
-  heading: "GOVERNMENT WARNING:",
-  body: "(1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems.",
-};
-
 type LegacyVerificationRequest = {
   schemaVersion: "verification-request-v1";
   caseReference: string | null;
@@ -306,7 +301,6 @@ export default function VerifyPage() {
   const [includeGovernmentWarning, setIncludeGovernmentWarning] = useState(true);
   const [additionalExpectedFields, setAdditionalExpectedFields] = useState<AdditionalExpectedField[]>([]);
   const [file, setFile] = useState<File | null>(null);
-  const [additionalFiles, setAdditionalFiles] = useState<File[]>([]);
   const [previewUrl, setPreviewUrl] = useState("");
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [activeCase, setActiveCase] = useState<QueueCaseDetail | null>(null);
@@ -320,8 +314,6 @@ export default function VerifyPage() {
   const [clearingQueue, setClearingQueue] = useState(false);
   const [downloadingReport, setDownloadingReport] = useState(false);
   const [autoProcess, setAutoProcess] = useState(true);
-  const [caseName, setCaseName] = useState("");
-  const [caseReference, setCaseReference] = useState("");
   const [importingCase, setImportingCase] = useState(false);
   const [validatingBatch, setValidatingBatch] = useState(false);
   const [batchPreview, setBatchPreview] = useState<BatchImportPreview | null>(null);
@@ -645,28 +637,6 @@ export default function VerifyPage() {
 
   const clearHoveredEvidence = () => setHoverEvidence([]);
 
-  const selectUploadedFiles = (selected: File[]) => {
-    const [primary, ...additional] = selected;
-    setFile(primary ?? null);
-    setAdditionalFiles(additional);
-    setPreviewUrl(primary ? URL.createObjectURL(primary) : "");
-    reset();
-  };
-
-  const removePanel = (index: number) => {
-    const remaining = [file, ...additionalFiles].filter((item): item is File => Boolean(item));
-    remaining.splice(index, 1);
-    selectUploadedFiles(remaining);
-  };
-
-  const movePanel = (index: number, direction: -1 | 1) => {
-    const ordered = [file, ...additionalFiles].filter((item): item is File => Boolean(item));
-    const destination = index + direction;
-    if (destination < 0 || destination >= ordered.length) return;
-    [ordered[index], ordered[destination]] = [ordered[destination], ordered[index]];
-    selectUploadedFiles(ordered);
-  };
-
   const createQueuedCase = async (
     request: VerificationRequest,
     artwork: File[],
@@ -731,41 +701,6 @@ export default function VerifyPage() {
     }
   };
 
-  const submit = async () => {
-    const artwork = [file, ...additionalFiles].filter((item): item is File => Boolean(item));
-    if (!artwork.length) {
-      setError("Choose one to six JPEG or PNG label panels first.");
-      return;
-    }
-    if (additionalExpectedFields.some((field) => !field.label.trim() || !field.expectedText.trim())) {
-      setError("Every additional field needs both a field name and an expected value on the label.");
-      return;
-    }
-    const additionalLabels = additionalExpectedFields.map((field) => field.label.trim().toLocaleLowerCase());
-    if (new Set(additionalLabels).size !== additionalLabels.length) {
-      setError("Every additional field needs a unique field name.");
-      return;
-    }
-    await enqueueCase(
-      {
-        schemaVersion: "verification-request-v1",
-        caseReference: caseReference.trim() || null,
-        category,
-        expected: {
-          brandName: brandName.trim() || null,
-          classType: classType.trim() || null,
-          abvPercent: abvPercent.trim() ? Number(abvPercent) : null,
-          proof: category === "distilled_spirits" && proof.trim() ? Number(proof) : null,
-          governmentWarning: includeGovernmentWarning ? CANONICAL_WARNING : null,
-          additionalFields: additionalExpectedFields.map((field) => ({ ...field, label: field.label.trim(), expectedText: field.expectedText.trim() })),
-        },
-        panels: artwork.map((panel, index) => ({ panelId: `p${String(index + 1).padStart(2, "0")}`, file: panel.name })),
-      },
-      artwork,
-      caseName.trim() || brandName.trim(),
-    );
-  };
-
   const importCaseFiles = async (applicationFile: File, artworkFiles: File[]) => {
     setImportingCase(true);
     setFileImportProgress({ completed: 0, total: 1, phase: "adding" });
@@ -789,10 +724,7 @@ export default function VerifyPage() {
         setIncludeGovernmentWarning(parsed.request.expected.governmentWarning !== null);
         setAdditionalExpectedFields(parsed.request.expected.additionalFields);
       }
-      setCaseName(parsed.displayName);
-      setCaseReference(parsed.request.caseReference ?? "");
       setFile(artworkFiles[0] ?? null);
-      setAdditionalFiles(artworkFiles.slice(1));
       setPreviewUrl(artworkFiles[0] ? URL.createObjectURL(artworkFiles[0]) : "");
       await enqueueCase(parsed.request, artworkFiles, parsed.displayName, {
         closeEntry: false,
@@ -890,12 +822,9 @@ export default function VerifyPage() {
 
   const openQueueEntry = (mode: "single" | "batch" | "catalog") => {
     reset();
-    setCaseName("");
-    setCaseReference("");
     setIncludeGovernmentWarning(true);
     setAdditionalExpectedFields([]);
     setFile(null);
-    setAdditionalFiles([]);
     setPreviewUrl("");
     setImportSummary("");
     setBatchPreview(null);
@@ -981,7 +910,6 @@ export default function VerifyPage() {
         : hasSelectedCheck(detail.checks, "government_warning"));
       setAdditionalExpectedFields(detail.expected?.additionalFields ?? []);
       setFile(null);
-      setAdditionalFiles([]);
       setPreviewUrl("");
       setActiveCase(detail);
       setAnalysis(detail.analysis);
@@ -1001,7 +929,6 @@ export default function VerifyPage() {
     setFinishedReviewQueue(completedReview && reviewWorkspaceFilter === "review_only");
     reset();
     setFile(null);
-    setAdditionalFiles([]);
     setPreviewUrl("");
     setActiveTab("review");
   };
@@ -1039,7 +966,6 @@ export default function VerifyPage() {
     }
     reset();
     setFile(null);
-    setAdditionalFiles([]);
     setPreviewUrl("");
     setActiveTab("review");
   };
@@ -1128,11 +1054,10 @@ export default function VerifyPage() {
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(errorMessage(payload, `Queue could not be cleared (${response.status})`));
-      }
-      reset();
-      setFile(null);
-      setAdditionalFiles([]);
-      setPreviewUrl("");
+    }
+    reset();
+    setFile(null);
+    setPreviewUrl("");
       setActiveTab("queue");
       await refreshQueue();
     } catch (caught) {
@@ -1316,42 +1241,17 @@ export default function VerifyPage() {
           ) : queueEntryMode ? (
             <CaseEntryForm
               mode={queueEntryMode}
-              category={category}
-              brandName={brandName}
-              classType={classType}
-              abvPercent={abvPercent}
-              proof={proof}
-              includeGovernmentWarning={includeGovernmentWarning}
-              additionalFields={additionalExpectedFields}
-              caseName={caseName}
-              caseReference={caseReference}
-              file={file}
-              additionalFiles={additionalFiles}
               autoProcess={autoProcess}
               error={error}
-              submitting={submitting}
               importing={importingCase}
               validatingBatch={validatingBatch}
               batchPreview={batchPreview}
               importSummary={importSummary}
               importProgress={fileImportProgress}
-              onCategoryChange={setCategory}
-              onBrandNameChange={setBrandName}
-              onClassTypeChange={setClassType}
-              onAbvPercentChange={setAbvPercent}
-              onProofChange={setProof}
-              onIncludeGovernmentWarningChange={setIncludeGovernmentWarning}
-              onAdditionalFieldsChange={setAdditionalExpectedFields}
-              onCaseNameChange={setCaseName}
-              onCaseReferenceChange={setCaseReference}
               onAutoProcessChange={setAutoProcess}
-              onSelectUploadedFiles={selectUploadedFiles}
-              onRemovePanel={removePanel}
-              onMovePanel={movePanel}
               onImport={(application, artwork) => void importCaseFiles(application, artwork)}
               onValidateBatch={(files) => void validateBatchFiles(files)}
               onBatchImport={(preview) => void importBatchFiles(preview)}
-              onManualSubmit={() => void submit()}
             />
           ) : null}
           onCloseEntry={() => setQueueEntryMode(null)}
