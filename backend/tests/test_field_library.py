@@ -232,7 +232,7 @@ def test_v2_ocr_warning_keeps_text_match_and_adds_presentation_review() -> None:
     assert presentation_result.automated_status == "review"
     assert presentation_result.requires_human_review is True
     assert presentation_result.reason_code == "warning_heading_boldness_human_review"
-    assert "only the GOVERNMENT WARNING: heading is bold" in presentation_result.explanation
+    assert "OCR cannot evaluate font weight" in presentation_result.explanation
 
 
 def test_v2_failed_text_check_surfaces_only_a_high_scoring_closest_span() -> None:

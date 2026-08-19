@@ -586,7 +586,7 @@ def _rules(
         heading_failures.append("The warning heading is not printed in all capital letters.")
     if presentation and presentation.heading_only_bold is False:
         heading_failures.append(
-            "The warning heading is not the only portion visibly bold relative to the warning body."
+            "The warning body appears bold, or the GOVERNMENT WARNING: heading does not appear bold."
         )
     heading_presentation_unknown = bool(
         heading
@@ -1029,9 +1029,9 @@ def _library_rules(
                 presentation_detected = None
                 presentation_reason = "warning_heading_boldness_human_review"
                 presentation_explanation = (
-                    "The statutory wording was located. Confirm visually that "
-                    "only the GOVERNMENT WARNING: heading is bold relative to "
-                    "the warning body."
+                    "The statutory wording was located, but OCR cannot evaluate "
+                    "font weight. Confirm visually that GOVERNMENT WARNING: is "
+                    "bold and that the warning body is not bold."
                 )
             else:
                 presentation = selected_panel.warning_presentation
@@ -1041,7 +1041,10 @@ def _library_rules(
                     if presentation.heading_all_caps is False:
                         failures.append("The warning heading is not all uppercase.")
                     if presentation.heading_only_bold is False:
-                        failures.append("The warning heading is not the only portion bold relative to the body.")
+                        failures.append(
+                            "The warning body appears bold, or the GOVERNMENT WARNING: "
+                            "heading does not appear bold."
+                        )
                     if presentation.continuous_paragraph is False:
                         failures.append("The warning is not one continuous paragraph.")
                     if presentation.separate_and_apart is False:
@@ -1068,7 +1071,9 @@ def _library_rules(
                 presentation_explanation = " ".join(failures) or (
                     presentation.uncertainty
                     if presentation and presentation.uncertainty
-                    else "Gemini could not confirm the warning presentation."
+                    else "Gemini could not confirm the warning presentation. "
+                    "Confirm visually that GOVERNMENT WARNING: is bold and the "
+                    "warning body is not bold."
                 )
             results.append(
                 AdditionalRuleResult(
@@ -1076,7 +1081,7 @@ def _library_rules(
                     label="Warning presentation",
                     match_mode="warning",
                     automated_status=presentation_status,
-                    expected_value="Only the heading is bold",
+                    expected_value="Bold heading; normal-weight body",
                     detected_value=presentation_detected,
                     evidence_quote=evaluation.evidence_quote,
                     evidence_block_ids=block_ids,
