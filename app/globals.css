@@ -714,6 +714,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .queue-clear-button { height: 42px; display: flex; align-items: center; gap: 7px; padding: 0 13px; color: #8f443d; border: 1px solid #dfb7b2; border-radius: 5px; background: #fffafa; font-size: 10px; font-weight: 700; cursor: pointer; }
 .queue-clear-button:hover:not(:disabled) { color: white; border-color: #a5473e; background: #a5473e; }
 .queue-clear-button:disabled { opacity: .48; cursor: not-allowed; }
+.queue-report-button { height: 42px; display: flex; align-items: center; gap: 7px; padding: 0 13px; color: #26576e; border: 1px solid #a9c5d1; border-radius: 5px; background: #f8fbfc; font-size: 10px; font-weight: 700; cursor: pointer; }
+.queue-report-button:hover:not(:disabled) { color: white; border-color: #285c74; background: #285c74; }
+.queue-report-button:disabled { opacity: .48; cursor: not-allowed; }
 .queue-empty-actions { display: flex; align-items: center; justify-content: center; gap: 9px; }
 .queue-empty-actions button { width: 100px; }
 .verify-panel-list { display: grid; gap: 5px; margin: 8px 0 12px; padding: 0; list-style: none; }
