@@ -18,6 +18,17 @@ class VisionFieldCandidate(ContractModel):
     uncertainty: str | None = None
 
 
+class VisionTextBlock(ContractModel):
+    """One literal, positioned text block returned in reading order."""
+
+    block_id: str
+    text: str
+    model_bounding_box: BoundingBox | None = None
+    reading_order: Annotated[int, Field(ge=0)]
+    legibility: Literal["clear", "uncertain", "unreadable"]
+    uncertainty: str | None = None
+
+
 class VisionWarningPresentation(ContractModel):
     """Visual properties that cannot be established by a text transcript alone."""
 
@@ -46,7 +57,10 @@ class VisionWarningPresentation(ContractModel):
 class VisionPanelExtraction(ContractModel):
     panel_id: str
     full_text: str
-    fields: tuple[VisionFieldCandidate, ...]
+    # `fields` remains only for cached pre-v8 extractions. New calls return
+    # literal blocks rather than semantic brand/class/value guesses.
+    fields: tuple[VisionFieldCandidate, ...] = ()
+    text_blocks: tuple[VisionTextBlock, ...] = ()
     warning_presentation: VisionWarningPresentation | None = None
     observations: tuple[str, ...] = ()
 

@@ -350,8 +350,10 @@ def _summary_from_row(row: sqlite3.Row, *, duplicate_image_count: int = 0) -> Ca
         display_name=row["display_name"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        request_schema_version=request.schema_version,
         category=request.category,
         expected=request.expected,
+        checks=request.checks,
         panel=_panel_from_row(row),
         panels=_panels_from_row(row),
         processing_status=row["processing_status"],
@@ -422,7 +424,20 @@ def create_case(
             )
         )
     public_panel = public_panels[0]
-    label = (display_name or "").strip() or request.expected.brand_name or "Untitled COLA case"
+    v2_brand = next(
+        (
+            check.expected_value
+            for check in request.checks
+            if check.field_id == "brand_name" and check.expected_value
+        ),
+        None,
+    )
+    label = (
+        (display_name or "").strip()
+        or (request.expected.brand_name if request.expected else None)
+        or v2_brand
+        or "Untitled COLA case"
+    )
     decision_status = DecisionStatus.AWAITING_ANALYSIS
     initial_processing_status = ProcessingStatus.QUEUED
     initial_analysis_status = AnalysisStatus.QUEUED

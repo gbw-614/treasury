@@ -9,9 +9,10 @@ assembled from the larger research workspace using an explicit allowlist.
   review workspace, and artwork evidence viewer.
 - `backend/app/` — the FastAPI service, authentication, SQLite persistence,
   queue ownership, public-catalog import, recognition cache, Tesseract reader,
-  OpenRouter vision reader, evidence alignment, and deterministic comparison.
-- `backend/tests/` — API, authentication, persistence, catalog, and analysis
-  regression tests.
+  OpenRouter vision reader, evidence alignment, versioned field library, and
+  deterministic comparison.
+- `backend/tests/` — API, authentication, persistence, catalog, field-library,
+  and analysis regression tests (including test-only fake-reader helpers).
 - `backend/scripts/export_contract_schemas.py` — deterministic JSON Schema
   generation and drift checking.
 - `schemas/` — the six public request, extraction, geometry, localization,
@@ -47,16 +48,13 @@ Git repository.
 
 ## Validation performed
 
-The initial curated snapshot was validated on 2026-08-18:
+The current curated snapshot was validated on 2026-08-18:
 
-- locked npm install, zero-advisory audit, ESLint, TypeScript, and Vite build;
-- 56 backend tests, Ruff, and checked-in JSON Schema drift check;
-- independent multi-stage Docker build and container health/UI smoke test;
-- Terraform formatting plus successful validation of both roots with Terraform
-  1.13.5; and
-- authenticated browser inspection of login, work queue, Add Case, settings,
-  and empty Review states.
+- `npm ci`, ESLint, TypeScript, and the Vite production build;
+- 72 backend tests, Ruff, and checked-in JSON Schema drift checking;
+- a fresh multi-stage Docker build whose context was 850 KB; and
+- an isolated Compose run that passed the health endpoint, served the UI, and
+  accepted a temporary bootstrap login.
 
-During that pass, disconnected leaderboard and annotation-workbench CSS was
-removed. The compiled stylesheet fell from 81.25 KB to 54.93 KB, and the empty
-Review state was corrected so it renders once at the full workspace width.
+The Docker context excludes local agent worktrees, credentials, database data,
+caches, and the wider research workspace.

@@ -125,6 +125,7 @@
       "additionalProperties": false,
       "properties": {
         "fields": {
+          "default": [],
           "items": {
             "$ref": "#/$defs/VisionFieldCandidate"
           },
@@ -147,6 +148,14 @@
           "title": "Panelid",
           "type": "string"
         },
+        "textBlocks": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/VisionTextBlock"
+          },
+          "title": "Textblocks",
+          "type": "array"
+        },
         "warningPresentation": {
           "anyOf": [
             {
@@ -161,10 +170,68 @@
       },
       "required": [
         "panelId",
-        "fullText",
-        "fields"
+        "fullText"
       ],
       "title": "VisionPanelExtraction",
+      "type": "object"
+    },
+    "VisionTextBlock": {
+      "additionalProperties": false,
+      "description": "One literal, positioned text block returned in reading order.",
+      "properties": {
+        "blockId": {
+          "title": "Blockid",
+          "type": "string"
+        },
+        "legibility": {
+          "enum": [
+            "clear",
+            "uncertain",
+            "unreadable"
+          ],
+          "title": "Legibility",
+          "type": "string"
+        },
+        "modelBoundingBox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "readingOrder": {
+          "minimum": 0,
+          "title": "Readingorder",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty"
+        }
+      },
+      "required": [
+        "blockId",
+        "text",
+        "readingOrder",
+        "legibility"
+      ],
+      "title": "VisionTextBlock",
       "type": "object"
     },
     "VisionWarningPresentation": {

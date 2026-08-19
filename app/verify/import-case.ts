@@ -1,4 +1,4 @@
-import type { AdditionalExpectedField, BeverageCategory } from "../verification-types";
+import type { AdditionalExpectedField, BeverageCategory, FieldLibraryCheck } from "../verification-types";
 
 export type ExpectedGovernmentWarning = {
   heading: string;
@@ -18,6 +18,11 @@ export type ImportedCase = {
       governmentWarning: ExpectedGovernmentWarning | null;
       additionalFields: AdditionalExpectedField[];
     };
+    panels: Array<{ panelId: string; file: string }>;
+  } | {
+    schemaVersion: "verification-request-v2";
+    category: BeverageCategory;
+    checks: FieldLibraryCheck[];
     panels: Array<{ panelId: string; file: string }>;
   };
 };
@@ -182,21 +187,72 @@ function additionalFields(value: unknown): AdditionalExpectedField[] {
   return parsed;
 }
 
+function fieldLibraryChecks(value: unknown): FieldLibraryCheck[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 20) {
+    throw new Error("The import JSON checks must be an array with one to 20 selected fields.");
+  }
+  const checks = value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`The import JSON checks[${index}] must be an object.`);
+    }
+    const check = item as Record<string, unknown>;
+    const fieldId = optionalText(check.fieldId ?? check.field_id, `checks[${index}].fieldId`);
+    if (!fieldId || !/^[a-z][a-z0-9_]{0,59}$/.test(fieldId)) {
+      throw new Error(`The import JSON checks[${index}].fieldId is invalid.`);
+    }
+    if (typeof check.required !== "boolean") {
+      throw new Error(`The import JSON checks[${index}].required must be true or false.`);
+    }
+    const expectedValue = optionalText(check.expectedValue ?? check.expected_value, `checks[${index}].expectedValue`);
+    return { fieldId, required: check.required, expectedValue };
+  });
+  if (new Set(checks.map((check) => check.fieldId)).size !== checks.length) {
+    throw new Error("Every selected field-library field must be unique.");
+  }
+  return checks;
+}
+
 export function parseCaseImport(payload: unknown, artworkFile: string | string[]): ImportedCase {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("The application file must contain a JSON object.");
   }
   const input = payload as Record<string, unknown>;
+  const isV2Import = input.schemaVersion === "verification-request-v2";
   const isCurrentImport = input.schemaVersion === "verification-case-import-v1" || input.schemaVersion === "verification-request-v1";
   const isBundledSample = input.schemaVersion === "sample-case-v1";
-  if (!isCurrentImport && !isBundledSample) {
-    throw new Error("Use verification-case-import-v1, verification-request-v1, or a bundled sample-case-v1 fixture.");
+  if (!isCurrentImport && !isBundledSample && !isV2Import) {
+    throw new Error("Use verification-case-import-v1, verification-request-v1, verification-request-v2, or a bundled sample-case-v1 fixture.");
   }
-  if (!input.expected || typeof input.expected !== "object" || Array.isArray(input.expected)) {
+  if (!isV2Import && (!input.expected || typeof input.expected !== "object" || Array.isArray(input.expected))) {
     throw new Error("The import JSON needs an expected object.");
   }
-  const expected = input.expected as Record<string, unknown>;
   const parsedCategory = category(input.category);
+  const artworkFiles = Array.isArray(artworkFile) ? artworkFile : [artworkFile];
+  if (!artworkFiles.length || artworkFiles.length > 6) {
+    throw new Error("Choose between one and six artwork panels.");
+  }
+  if (isV2Import) {
+    const checks = fieldLibraryChecks(input.checks);
+    const brand = checks.find((check) => check.fieldId === "brand_name")?.expectedValue;
+    const displayName =
+      typeof input.displayName === "string" && input.displayName.trim()
+        ? input.displayName.trim()
+        : typeof input.applicationId === "string" && input.applicationId.trim()
+          ? input.applicationId.trim()
+          : typeof input.title === "string" && input.title.trim()
+            ? input.title.trim()
+            : brand ?? "Imported COLA case";
+    return {
+      displayName,
+      request: {
+        schemaVersion: "verification-request-v2",
+        category: parsedCategory,
+        checks,
+        panels: artworkFiles.map((file, index) => ({ panelId: `p${String(index + 1).padStart(2, "0")}`, file })),
+      },
+    };
+  }
+  const expected = input.expected as Record<string, unknown>;
   const brandName = optionalText(expected.brandName, "expected.brandName");
   const classType = optionalText(expected.classType, "expected.classType");
   const abvPercent = optionalNumber(expected.abvPercent, "expected.abvPercent", 100);
@@ -211,11 +267,6 @@ export function parseCaseImport(payload: unknown, artworkFile: string | string[]
         : typeof input.title === "string" && input.title.trim()
           ? input.title.trim()
           : brandName ?? "Imported COLA case";
-  const artworkFiles = Array.isArray(artworkFile) ? artworkFile : [artworkFile];
-  if (!artworkFiles.length || artworkFiles.length > 6) {
-    throw new Error("Choose between one and six artwork panels.");
-  }
-
   return {
     displayName,
     request: {

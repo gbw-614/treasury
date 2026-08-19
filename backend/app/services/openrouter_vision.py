@@ -11,13 +11,18 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.schemas import ValidatedPanel, VisionPanelExtraction, VisionRun
+from app.schemas import (
+    ValidatedPanel,
+    VisionPanelExtraction,
+    VisionRun,
+    VisionTextBlock,
+)
 from app.services.blind_request import (
     BLIND_EXTRACTION_PROMPT,
     build_blind_vision_request,
 )
 
-PROMPT_VERSION = "blind-extraction-v7"
+PROMPT_VERSION = "blind-extraction-v8"
 DEFAULT_MODEL = "google/gemini-3.5-flash"
 DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_TIMEOUT_SECONDS = 12.0
@@ -49,36 +54,18 @@ def _normalized_box_to_pixels(
 
 
 def _response_schema(panel_id: str) -> dict[str, Any]:
-    field_keys = [
-        "brand_name",
-        "class_type",
-        "alcohol_content",
-        "proof",
-        "government_warning_heading",
-        "government_warning_body",
-    ]
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "panelId": {"type": "string", "const": panel_id},
-            "fullText": {"type": "string"},
-            "fields": {
+            "textBlocks": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
-                        "fieldKey": {"type": "string", "enum": field_keys},
-                        "rawText": {"type": "string"},
-                        "normalizedValue": {
-                            "anyOf": [
-                                {"type": "string"},
-                                {"type": "number"},
-                                {"type": "null"},
-                            ]
-                        },
-                        "evidenceQuote": {"type": "string"},
+                        "text": {"type": "string"},
                         "evidenceBox1000": {
                             "anyOf": [
                                 {
@@ -111,7 +98,6 @@ def _response_schema(panel_id: str) -> dict[str, Any]:
                                 {"type": "null"},
                             ]
                         },
-                        "panelId": {"type": "string", "const": panel_id},
                         "legibility": {
                             "type": "string",
                             "enum": ["clear", "uncertain", "unreadable"],
@@ -121,12 +107,8 @@ def _response_schema(panel_id: str) -> dict[str, Any]:
                         },
                     },
                     "required": [
-                        "fieldKey",
-                        "rawText",
-                        "normalizedValue",
-                        "evidenceQuote",
+                        "text",
                         "evidenceBox1000",
-                        "panelId",
                         "legibility",
                         "uncertainty",
                     ],
@@ -177,8 +159,7 @@ def _response_schema(panel_id: str) -> dict[str, Any]:
         },
         "required": [
             "panelId",
-            "fullText",
-            "fields",
+            "textBlocks",
             "warningPresentation",
             "observations",
         ],
@@ -206,7 +187,7 @@ def vision_available() -> bool:
 def cache_identity() -> str:
     model = os.getenv("OPENROUTER_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
     endpoint = os.getenv("OPENROUTER_API_URL", DEFAULT_ENDPOINT).strip() or DEFAULT_ENDPOINT
-    return f"{PROMPT_VERSION}|{model}|{endpoint}|temperature-0|minimal|schema-v1"
+    return f"{PROMPT_VERSION}|{model}|{endpoint}|temperature-0|minimal|literal-blocks-v1"
 
 
 def _safe_number(value: object) -> int | None:
@@ -270,7 +251,7 @@ def run_openrouter_vision(
         "model": model,
         "temperature": 0,
         "reasoning_effort": "minimal",
-        "max_tokens": 3000,
+        "max_tokens": 5000,
         "messages": [
             {
                 "role": "user",
@@ -330,24 +311,32 @@ def run_openrouter_vision(
         if not isinstance(extraction_payload, dict):
             raise TypeError("Provider extraction was not an object")
         extraction_payload["panelId"] = panel.panel_id
-        raw_fields = extraction_payload.get("fields")
-        if isinstance(raw_fields, list):
-            for raw_field in raw_fields:
-                if isinstance(raw_field, dict):
-                    raw_field["panelId"] = panel.panel_id
-                    raw_box = raw_field.pop("evidenceBox1000", None)
-                    if raw_box is not None and not isinstance(raw_box, dict):
-                        raise ValueError(
-                            "Provider returned a non-object normalized evidence box"
-                        )
-                    raw_field["modelBoundingBox"] = _normalized_box_to_pixels(
-                        raw_box,
-                        panel,
-                    )
+        raw_blocks = extraction_payload.pop("textBlocks", None)
+        if not isinstance(raw_blocks, list):
+            raise TypeError("Provider textBlocks was not an array")
+        blocks: list[VisionTextBlock] = []
+        for index, raw_block in enumerate(raw_blocks):
+            if not isinstance(raw_block, dict):
+                raise TypeError("Provider returned a non-object text block")
+            raw_box = raw_block.pop("evidenceBox1000", None)
+            if raw_box is not None and not isinstance(raw_box, dict):
+                raise ValueError(
+                    "Provider returned a non-object normalized text-block box"
+                )
+            blocks.append(VisionTextBlock(
+                block_id=f"{panel.panel_id}-b{index + 1:03d}",
+                text=str(raw_block.get("text", "")),
+                model_bounding_box=_normalized_box_to_pixels(raw_box, panel),
+                reading_order=index,
+                legibility=raw_block.get("legibility", "uncertain"),
+                uncertainty=raw_block.get("uncertainty"),
+            ))
+        extraction_payload["fullText"] = "\n".join(block.text for block in blocks)
+        extraction_payload["textBlocks"] = [
+            block.model_dump(mode="json", by_alias=True) for block in blocks
+        ]
+        extraction_payload["fields"] = []
         extraction = VisionPanelExtraction.model_validate(extraction_payload)
-        field_keys = [field.field_key for field in extraction.fields]
-        if len(field_keys) != len(set(field_keys)):
-            raise ValueError("Provider returned duplicate field candidates")
     except (
         KeyError,
         IndexError,

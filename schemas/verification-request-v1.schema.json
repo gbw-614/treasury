@@ -157,6 +157,41 @@
       "title": "ExplicitExpectedValues",
       "type": "object"
     },
+    "FieldCheck": {
+      "additionalProperties": false,
+      "description": "A case selection from the versioned server-side field library.",
+      "properties": {
+        "expectedValue": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expectedvalue"
+        },
+        "fieldId": {
+          "pattern": "^[a-z][a-z0-9_]{0,59}$",
+          "title": "Fieldid",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fieldId"
+      ],
+      "title": "FieldCheck",
+      "type": "object"
+    },
     "PanelInput": {
       "additionalProperties": false,
       "properties": {
@@ -185,10 +220,34 @@
   "additionalProperties": false,
   "properties": {
     "category": {
-      "$ref": "#/$defs/BeverageCategory"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BeverageCategory"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "checks": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/FieldCheck"
+      },
+      "title": "Checks",
+      "type": "array"
     },
     "expected": {
-      "$ref": "#/$defs/ExplicitExpectedValues"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExplicitExpectedValues"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "panels": {
       "items": {
@@ -207,15 +266,16 @@
       "type": "string"
     },
     "schemaVersion": {
-      "const": "verification-request-v1",
+      "enum": [
+        "verification-request-v1",
+        "verification-request-v2"
+      ],
       "title": "Schemaversion",
       "type": "string"
     }
   },
   "required": [
     "schemaVersion",
-    "category",
-    "expected",
     "panels"
   ],
   "title": "AnalysisRequest",

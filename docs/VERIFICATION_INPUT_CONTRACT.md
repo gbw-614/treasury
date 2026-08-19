@@ -4,7 +4,59 @@ The product compares label artwork with explicit application values. It is not
 a regulatory rules engine and does not translate a COLA class/type code into
 the wording that ought to appear on a label.
 
-For each case, the caller supplies:
+## Field-library request (v2)
+
+New catalog and application imports should use `verification-request-v2`.
+Each selected check references a reviewed, server-side field-library entry;
+the case supplies only whether it is required and, where available, an
+independent expected value. The reader never receives either.
+
+```json
+{
+  "schemaVersion": "verification-request-v2",
+  "category": "wine",
+  "checks": [
+    {"fieldId": "brand_name", "required": true, "expectedValue": "LIVING ROOTS WINE & CO."},
+    {"fieldId": "class_type", "required": true, "expectedValue": "BONE-DRY RIESLING"},
+    {"fieldId": "alcohol_content", "required": true, "expectedValue": "12.3"},
+    {"fieldId": "government_warning", "required": true}
+  ],
+  "panels": [
+    {"panelId": "p01", "file": "front.jpg"},
+    {"panelId": "p02", "file": "back.jpg"}
+  ],
+  "readerMode": "llm"
+}
+```
+
+The initial library is versioned in
+`backend/app/config/field-library-v1.json` and supports:
+
+- case-insensitive normalized text: `brand_name`, `class_type`,
+  `producer_or_bottler`, `country_of_origin`;
+- regex statement detection with optional captured-value comparison:
+  `alcohol_content`, `proof`, `net_contents`; and
+- the canonical `government_warning` check.
+
+For each v2 check, the caller supplies the field ID, whether it is required,
+and an independent expected value when the field definition supports one. The
+caller also supplies one to six ordered artwork panels and selects the reader
+mode. The server validates field IDs against the versioned library; it never
+derives expected wording from COLA metadata or model output.
+
+If a regex field has no `expectedValue`, the result checks only that a
+configured statement exists. If it has an expected value, the configured regex
+must find a statement and its captured value must match. The application may
+omit a field entirely when it is not in scope for that case. `v1` remains
+accepted for existing queued cases during the transition.
+
+Regex checks examine the complete ordered label set. Repeated occurrences of
+one normalized value are allowed, but multiple distinct captured values route
+the field to review even when one equals the expected value. This prevents a
+multi-product template containing several ABVs, proofs, or net contents from
+passing merely because the expected number appears somewhere on the artwork.
+
+For legacy v1 requests only, the caller supplies:
 
 - one beverage category used only as extraction context;
 - one to six ordered artwork panels;
@@ -55,6 +107,21 @@ first read the artwork blindly. Deterministic code then compares the extracted
 values with this JSON and returns match, discrepancy, or review. A missing or
 unreadable detection is review evidence, not proof that required wording is
 absent.
+
+In LLM mode, Gemini returns exhaustive literal text blocks in reading order,
+with a best-effort box and legibility assessment for each block. It does not
+classify blocks as brand, class/type, alcohol content, or other application
+fields. The deterministic field-library evaluator selects the actual transcript
+span that satisfies each configured check and links that result to its supporting
+block or blocks. A matching block marked uncertain or unreadable routes the field
+to review; failure to localize an otherwise clear literal match affects the
+evidence control but does not change the match itself.
+
+When an ordinary text check has no exact normalized match, the reviewer result
+may show the highest-scoring consecutive literal-block span. The fallback uses
+RapidFuzz `fuzz.ratio`, requires a score of at least 80, and always remains a
+review result. It is explanatory evidence only; it is never accepted as an
+automated match and is not used for regex or government-warning checks.
 
 Additional fields use one deliberately narrow rule: the normalized expected
 words must occur as one contiguous phrase in the blind reader transcript. A

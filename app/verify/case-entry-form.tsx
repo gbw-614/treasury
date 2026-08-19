@@ -12,6 +12,12 @@ import { FormEvent, useRef, useState } from "react";
 import type { AdditionalExpectedField, BeverageCategory } from "../verification-types";
 import type { BatchImportPreview } from "./import-case";
 
+export type FileImportProgress = {
+  completed: number;
+  total: number;
+  phase: "adding" | "starting_scans";
+};
+
 type EntryProps = {
   mode: "single" | "batch";
   category: BeverageCategory;
@@ -31,6 +37,7 @@ type EntryProps = {
   validatingBatch: boolean;
   batchPreview: BatchImportPreview | null;
   importSummary: string;
+  importProgress: FileImportProgress | null;
   onCategoryChange: (value: BeverageCategory) => void;
   onBrandNameChange: (value: string) => void;
   onClassTypeChange: (value: string) => void;
@@ -68,6 +75,7 @@ export default function CaseEntryForm({
   validatingBatch,
   batchPreview,
   importSummary,
+  importProgress,
   onCategoryChange,
   onBrandNameChange,
   onClassTypeChange,
@@ -118,7 +126,7 @@ export default function CaseEntryForm({
     <>
       <div className="verify-intake-heading">
         <span className="eyebrow">{mode === "batch" ? "Queue import" : "New queue item"}</span>
-        <h1>{mode === "batch" ? "Batch import" : "Add a case"}</h1>
+        <h1>{mode === "batch" ? "Import from files" : "Add a case"}</h1>
         <p>{mode === "batch" ? "Add several application records and their label artwork in one step." : "Import an application record or enter one manually. Blind extraction stays separate from expected values."}</p>
       </div>
       {mode === "batch" ? (
@@ -283,6 +291,18 @@ export default function CaseEntryForm({
       </form>
       )}
       <div className="verify-disclosure"><ShieldCheck size={15} /><span><b>Connected analysis</b>The Python service runs the selected reader. LLM mode sends only the artwork—not the expected values—to the configured vision provider.</span></div>
+      {importProgress && (
+        <div className="file-import-progress-overlay" role="presentation">
+          <section className="file-import-progress-dialog" role="status" aria-live="polite" aria-labelledby="file-import-progress-title">
+            <LoaderCircle className="spin" size={25} />
+            <span className="eyebrow">File import</span>
+            <h2 id="file-import-progress-title">{importProgress.phase === "adding" ? "Adding cases to the queue" : "Starting recognition"}</h2>
+            <p>{importProgress.phase === "adding" ? "Each application and its artwork are being saved to your queue." : "Cases are queued in visible order for recognition."}</p>
+            <strong>{importProgress.completed} of {importProgress.total}</strong>
+            <div className="file-import-progress-track" aria-hidden="true"><span style={{ width: `${importProgress.total ? (importProgress.completed / importProgress.total) * 100 : 0}%` }} /></div>
+          </section>
+        </div>
+      )}
     </>
   );
 }

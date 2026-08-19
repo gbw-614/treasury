@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
+from app.field_library import get_field_definition
+
 from .common import BeverageCategory, ContractModel
 
 ShortText = Annotated[str, Field(min_length=1, max_length=250)]
@@ -51,10 +53,31 @@ class PanelInput(ContractModel):
     file: ShortText
 
 
+class FieldCheck(ContractModel):
+    """A case selection from the versioned server-side field library."""
+
+    field_id: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,59}$")]
+    required: bool = True
+    expected_value: Annotated[str, Field(min_length=1, max_length=1000)] | None = None
+
+    @model_validator(mode="after")
+    def validate_field_library_reference(self) -> FieldCheck:
+        try:
+            definition = get_field_definition(self.field_id)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        if definition.check_type == "text" and self.required and self.expected_value is None:
+            raise ValueError("required text checks require expectedValue")
+        return self
+
+
 class AnalysisRequest(ContractModel):
-    schema_version: Literal["verification-request-v1"]
-    category: BeverageCategory
-    expected: ExplicitExpectedValues
+    schema_version: Literal["verification-request-v1", "verification-request-v2"]
+    # Category remains available for v1 and metadata, but v2 checks do not
+    # use a beverage-category rule engine.
+    category: BeverageCategory | None = None
+    expected: ExplicitExpectedValues | None = None
+    checks: tuple[FieldCheck, ...] = ()
     panels: tuple[PanelInput, ...]
     reader_mode: Literal["ocr", "llm"] = "llm"
 
@@ -80,4 +103,14 @@ class AnalysisRequest(ContractModel):
         panel_ids = [panel.panel_id for panel in self.panels]
         if len(panel_ids) != len(set(panel_ids)):
             raise ValueError("every panelId must be unique within a label set")
+        if self.schema_version == "verification-request-v1" and self.expected is None:
+            raise ValueError("verification-request-v1 requires expected")
+        if self.schema_version == "verification-request-v2":
+            if self.expected is not None:
+                raise ValueError("verification-request-v2 uses checks, not expected")
+            if not self.checks:
+                raise ValueError("verification-request-v2 requires at least one check")
+            ids = [check.field_id for check in self.checks]
+            if len(ids) != len(set(ids)):
+                raise ValueError("every check fieldId must be unique")
         return self

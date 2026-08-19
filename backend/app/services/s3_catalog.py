@@ -105,7 +105,7 @@ class CatalogSource:
         try:
             return SourceCatalog.model_validate_json(raw)
         except ValidationError as exc:
-            raise CatalogError("invalid_catalog", "Catalog manifest does not match verification-source-catalog-v1.") from exc
+            raise CatalogError("invalid_catalog", "Catalog manifest does not match a supported verification-source-catalog version.") from exc
 
     def fetch_object(self, obj: SourceObject) -> bytes:
         content = self.fetch(self.object_url(obj.key), max_bytes=obj.bytes)

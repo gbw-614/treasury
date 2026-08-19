@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "ttb-field-library-v1",
+  "libraryVersion": "v1",
+  "fields": [
+    {"id": "brand_name", "name": "Brand name", "checkType": "text"},
+    {"id": "class_type", "name": "Class/type designation", "checkType": "text"},
+    {
+      "id": "alcohol_content",
+      "name": "Alcohol content",
+      "checkType": "regex",
+      "normalize": "decimal_or_range",
+      "patterns": [
+        {
+          "id": "value_first",
+          "regex": "\\b(?P<value>\\d+(?:[.,]\\d+)?(?:\\s*[-–]\\s*\\d+(?:[.,]\\d+)?)?)\\s*(?:%|percent)\\s*(?:alc(?:ohol)?\\.?\\s*)?(?:(?:/|by)\\s*)?vol(?:ume)?\\.?",
+          "valueCapture": "value"
+        },
+        {
+          "id": "descriptor_first",
+          "regex": "\\b(?:alc\\.?|alcohol)\\s*[:.]?\\s*(?P<value>\\d+(?:[.,]\\d+)?(?:\\s*[-–]\\s*\\d+(?:[.,]\\d+)?)?)\\s*(?:%|percent)\\s*(?:by\\s*)?vol(?:ume)?\\.?",
+          "valueCapture": "value"
+        },
+        {
+          "id": "descriptor_and_volume_first",
+          "regex": "\\b(?:alc\\.?|alcohol)\\s*(?:/|by)\\s*vol(?:ume)?\\.?\\s*[:.]?\\s*(?P<value>\\d+(?:[.,]\\d+)?(?:\\s*[-–]\\s*\\d+(?:[.,]\\d+)?)?)\\s*(?:%|percent)",
+          "valueCapture": "value"
+        }
+      ]
+    },
+    {
+      "id": "proof",
+      "name": "Proof", "checkType": "regex", "normalize": "decimal",
+      "patterns": [
+        {"id": "number_before_proof", "regex": "\\b(?P<value>\\d+(?:[.,]\\d+)?)\\s*(?:\\(\\s*)?proof\\b", "valueCapture": "value"}
+      ]
+    },
+    {
+      "id": "net_contents",
+      "name": "Net contents", "checkType": "regex", "normalize": "text",
+      "patterns": [
+        {"id": "metric_or_us_customary", "regex": "\\b(?P<value>\\d+(?:[.,]\\d+)?\\s*(?:mL|ml|L|l|fl\\.?\\s*oz\\.?|oz\\.?|gal\\.?))\\b", "valueCapture": "value"}
+      ]
+    },
+    {"id": "producer_or_bottler", "name": "Name and address of bottler/producer", "checkType": "text"},
+    {"id": "country_of_origin", "name": "Country of origin", "checkType": "text"},
+    {
+      "id": "government_warning",
+      "name": "Government Health Warning Statement",
+      "checkType": "warning",
+      "heading": "GOVERNMENT WARNING:",
+      "body": "(1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems."
+    }
+  ]
+}

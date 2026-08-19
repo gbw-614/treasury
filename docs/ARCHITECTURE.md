@@ -24,7 +24,7 @@ service in production.
 browser or catalog
        |
        v
-explicit verification-request-v1 + ordered artwork panels
+explicit verification-request-v2 + ordered artwork panels
        |
        v
 validate JSON, media type, dimensions, byte limits, and panel order
@@ -48,10 +48,12 @@ explicit expected values supplied by the case. The application does not infer
 missing application facts from a COLA class code.
 
 OCR mode provides transcript tokens, confidence values, and geometry from
-Tesseract. LLM mode provides structured field candidates, literal quotes,
-model-supplied geometry, and warning-presentation observations. Tesseract does
-not establish typography such as boldness, so rules that require visual
-presentation evidence remain conservative in OCR mode.
+Tesseract. LLM mode provides literal text blocks, model-supplied geometry, and
+warning-presentation observations; deterministic code applies the configured
+checks rather than asking the model to decide which text is a brand or class.
+Tesseract does not establish typography such as boldness, so rules that require
+visual presentation evidence remain conservative in OCR mode. Legacy v1
+requests remain readable for existing queued work, but new cases use v2.
 
 ## Persistent state
 
@@ -119,6 +121,8 @@ operation or on mutable remote objects after import. See
   and background-job coordination.
 - `backend/app/schemas/` — Pydantic request, extraction, queue, and result
   contracts.
+- `backend/app/field_library.py` and `backend/app/config/` — the versioned
+  field definitions and deterministic matching modes used by v2 requests.
 - `backend/app/services/connected_analysis.py` — reader orchestration and
   deterministic comparison.
 - `backend/app/services/openrouter_vision.py` — blind OpenRouter/Gemini
@@ -131,8 +135,8 @@ operation or on mutable remote objects after import. See
 - `backend/app/services/recognition_cache.py` — recognition-result cache.
 - `backend/app/services/case_store.py` and `auth_store.py` — persistence.
 
-Test-only analysis builders live under `backend/tests/`; they are not included
-in the production Python package or Docker runtime.
+Test-only analysis builders live under `backend/tests/`; Docker copies only
+`backend/app/`, so they are not included in the production runtime.
 
 ## Change discipline
 

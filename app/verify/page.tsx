@@ -2,6 +2,8 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   CircleDot,
   ClipboardList,
@@ -40,6 +42,7 @@ import type {
   CaseOutcome,
   CaseQueueResponse,
   FieldKey,
+  FieldLibraryCheck,
   QueueCase,
   QueueCaseDetail,
   QueuePreferences,
@@ -49,21 +52,24 @@ import type {
 } from "../verification-types";
 import WorkQueue from "./work-queue";
 import { previewBatchImportFiles, parseCaseImport, type BatchImportPreview } from "./import-case";
-import CaseEntryForm from "./case-entry-form";
+import CaseEntryForm, { type FileImportProgress } from "./case-entry-form";
 import CatalogImport from "./catalog-import";
 
 const API_URL = import.meta.env.VITE_VERIFICATION_API_URL ?? "";
 
 const DEFAULT_QUEUE_PREFERENCES: QueuePreferences = {
   query: "", outcomeFilter: "all", reviewFilter: "all", assignmentFilter: "all", showRemoved: false,
+  reviewWorkspaceFilter: "review_only",
 };
+
+type ReviewWorkspaceFilter = QueuePreferences["reviewWorkspaceFilter"];
 
 const CANONICAL_WARNING = {
   heading: "GOVERNMENT WARNING:",
   body: "(1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems.",
 };
 
-type VerificationRequest = {
+type LegacyVerificationRequest = {
   schemaVersion: "verification-request-v1";
   category: BeverageCategory;
   expected: {
@@ -77,12 +83,57 @@ type VerificationRequest = {
   panels: Array<{ panelId: string; file: string }>;
 };
 
+type LibraryVerificationRequest = {
+  schemaVersion: "verification-request-v2";
+  category: BeverageCategory;
+  checks: FieldLibraryCheck[];
+  panels: Array<{ panelId: string; file: string }>;
+};
+
+type VerificationRequest = LegacyVerificationRequest | LibraryVerificationRequest;
+
+function selectedCheckValue(checks: FieldLibraryCheck[], fieldId: string) {
+  return checks.find((check) => check.fieldId === fieldId)?.expectedValue ?? null;
+}
+
+function hasSelectedCheck(checks: FieldLibraryCheck[], fieldId: string) {
+  return checks.some((check) => check.fieldId === fieldId && check.required);
+}
+
 type RecognitionCacheStats = {
   schemaVersion: "recognition-cache-stats-v1";
   ocrEntries: number;
   llmEntries: number;
   totalEntries: number;
 };
+
+type ConfirmationRequest = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  destructive?: boolean;
+  onConfirm: () => void | Promise<void>;
+};
+
+function ConfirmationDialog({ request, onCancel }: { request: ConfirmationRequest; onCancel: () => void }) {
+  return (
+    <div className="confirmation-overlay" role="presentation">
+      <button className="confirmation-backdrop" type="button" onClick={onCancel} aria-label="Cancel confirmation" />
+      <section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirmation-title" aria-describedby="confirmation-message">
+        <CircleAlert size={22} />
+        <div>
+          <span className="eyebrow">Confirmation required</span>
+          <h2 id="confirmation-title">{request.title}</h2>
+          <p id="confirmation-message">{request.message}</p>
+        </div>
+        <footer>
+          <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+          <button type="button" className={request.destructive ? "destructive" : ""} onClick={() => void request.onConfirm()}>{request.confirmLabel}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
 
 function LoginScreen({ onLogin, busy, error, conflict, onReplace }: {
   onLogin: (username: string, password: string) => void;
@@ -95,8 +146,8 @@ function LoginScreen({ onLogin, busy, error, conflict, onReplace }: {
   const [password, setPassword] = useState("");
   return <main className="login-screen">
     <form className="login-card" onSubmit={(event) => { event.preventDefault(); onLogin(username, password); }}>
-      <ShieldCheck size={28} /><span className="eyebrow">Regulatory operations</span>
-      <h1>Label verification</h1>
+      <ShieldCheck size={28} /><span className="eyebrow">Label review</span>
+      <h1>Human-in-the-loop review accelerator</h1>
       <p>Sign in to access the shared review queue.</p>
       <label>Username<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required /></label>
       <label>Password<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
@@ -207,6 +258,24 @@ function needsHumanReview(item: QueueCase) {
   return !item.removedAt && item.outcome === "needs_review" && item.decisionSource === "automated";
 }
 
+function reviewWorkspaceCases(
+  cases: QueueCase[],
+  filter: ReviewWorkspaceFilter,
+  userId: string | undefined,
+) {
+  return cases.filter((item) => {
+    if (
+      item.removedAt
+      || item.processingStatus !== "complete"
+      || (item.assignedToUserId && item.assignedToUserId !== userId)
+    ) return false;
+    if (filter === "not_human_confirmed") return item.decisionSource !== "human_confirmed";
+    if (filter === "review_only") return needsHumanReview(item);
+    if (filter === "failed") return item.outcome === "fail";
+    return true;
+  });
+}
+
 export default function VerifyPage() {
   const [authState, setAuthState] = useState<"checking" | "login" | "ready">("checking");
   const [currentUser, setCurrentUser] = useState<AuthenticatedUser | null>(null);
@@ -226,6 +295,7 @@ export default function VerifyPage() {
   const [cacheStatsLoading, setCacheStatsLoading] = useState(false);
   const [cacheClearing, setCacheClearing] = useState(false);
   const [cacheError, setCacheError] = useState("");
+  const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
   const [category, setCategory] = useState<BeverageCategory>("distilled_spirits");
   const [brandName, setBrandName] = useState("Treasury Sample");
   const [classType, setClassType] = useState("Bourbon Whisky");
@@ -252,6 +322,7 @@ export default function VerifyPage() {
   const [validatingBatch, setValidatingBatch] = useState(false);
   const [batchPreview, setBatchPreview] = useState<BatchImportPreview | null>(null);
   const [importSummary, setImportSummary] = useState("");
+  const [fileImportProgress, setFileImportProgress] = useState<FileImportProgress | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [savingDecision, setSavingDecision] = useState(false);
   const [finishedReviewQueue, setFinishedReviewQueue] = useState(false);
@@ -454,12 +525,12 @@ export default function VerifyPage() {
     return analysis.panels.map((panel, index) => {
       const stored = storedPanels.find((candidate) => candidate?.panelId === panel.panelId) ?? storedPanels[index];
       return {
-        id: panel.panelId,
-        file: stored?.file ?? `Panel ${index + 1}`,
-        url: stored ? `${API_URL}${stored.url}` : previewUrl,
-        width: panel.width,
-        height: panel.height,
-        format: panel.detectedMimeType.split("/")[1],
+      id: panel.panelId,
+      file: stored?.file ?? `Panel ${index + 1}`,
+      url: stored ? `${API_URL}${stored.url}` : previewUrl,
+      width: panel.width,
+      height: panel.height,
+      format: panel.detectedMimeType.split("/")[1],
       };
     });
   }, [activeCase, analysis, previewUrl]);
@@ -473,13 +544,22 @@ export default function VerifyPage() {
         source: "ocr" as const,
       }));
       const visionRegions = (analysis?.visionRun.panels ?? []).flatMap((panel) =>
-        panel.fields.map((candidate, candidateIndex) => ({
-          id: `vision-${candidate.fieldKey}-${candidate.panelId}-${candidateIndex}`,
-          panelId: candidate.panelId,
-          text: candidate.evidenceQuote || FIELD_LABELS[candidate.fieldKey],
-          boxes: candidate.modelBoundingBox ? [candidate.modelBoundingBox] : [],
-          source: "vision" as const,
-        })),
+        [
+          ...(panel.textBlocks ?? []).map((block) => ({
+            id: block.blockId,
+            panelId: panel.panelId,
+            text: block.text,
+            boxes: block.modelBoundingBox ? [block.modelBoundingBox] : [],
+            source: analysis?.readerMode === "ocr" ? "ocr" as const : "vision" as const,
+          })),
+          ...panel.fields.map((candidate, candidateIndex) => ({
+            id: `vision-${candidate.fieldKey}-${candidate.panelId}-${candidateIndex}`,
+            panelId: candidate.panelId,
+            text: candidate.evidenceQuote || FIELD_LABELS[candidate.fieldKey],
+            boxes: candidate.modelBoundingBox ? [candidate.modelBoundingBox] : [],
+            source: "vision" as const,
+          })),
+        ],
       );
       return [...visionRegions, ...ocrRegions];
     },
@@ -488,6 +568,10 @@ export default function VerifyPage() {
   const localizationsById = useMemo(
     () => new Map((analysis?.localizations ?? []).map((location) => [location.localizationId, location])),
     [analysis],
+  );
+  const evidenceRegionsById = useMemo(
+    () => new Map(evidenceRegions.map((region) => [region.id, region])),
+    [evidenceRegions],
   );
   const visionEvidenceCandidates = useMemo(
     () => {
@@ -514,15 +598,28 @@ export default function VerifyPage() {
     discrepancies: allVisibleResults.filter((rule) => rule.automatedStatus === "discrepancy").length,
     review: allVisibleResults.filter((rule) => rule.automatedStatus === "review").length,
   };
+  const reviewWorkspaceFilter = queuePreferences?.reviewWorkspaceFilter ?? "review_only";
+  const filteredReviewCases = useMemo(
+    () => reviewWorkspaceCases(queueCases, reviewWorkspaceFilter, currentUser?.userId),
+    [currentUser?.userId, queueCases, reviewWorkspaceFilter],
+  );
+  const activeReviewIndex = activeCase
+    ? filteredReviewCases.findIndex((item) => item.caseId === activeCase.caseId)
+    : -1;
+  const reviewEmptyCopy = reviewWorkspaceFilter === "review_only"
+    ? {
+        title: finishedReviewQueue ? "No more cases to review" : "No cases to review",
+        body: finishedReviewQueue
+          ? "You’ve completed every case currently routed for review."
+          : "Machine-routed review cases will appear here when they are ready.",
+      }
+    : reviewWorkspaceFilter === "failed"
+      ? { title: "No failed cases", body: "No completed cases currently have a failed outcome." }
+      : reviewWorkspaceFilter === "not_human_confirmed"
+        ? { title: "No unconfirmed cases", body: "Every available completed case has been human confirmed." }
+        : { title: "No completed cases", body: "Completed cases will appear here when they are ready." };
   const activeClaimedByAnotherReviewer = Boolean(
     activeCase?.assignedToUserId && activeCase.assignedToUserId !== currentUser?.userId,
-  );
-  const reviewableCaseCount = useMemo(
-    () => queueCases.filter(
-      (item) => needsHumanReview(item)
-        && (!item.assignedToUserId || item.assignedToUserId === currentUser?.userId),
-    ).length,
-    [currentUser?.userId, queueCases],
   );
 
   const inspectableOcrIds = (rule: RuleResult) =>
@@ -666,17 +763,27 @@ export default function VerifyPage() {
 
   const importCaseFiles = async (applicationFile: File, artworkFiles: File[]) => {
     setImportingCase(true);
+    setFileImportProgress({ completed: 0, total: 1, phase: "adding" });
     setError("");
     setImportSummary("");
     try {
       const parsed = parseCaseImport(JSON.parse(await applicationFile.text()), artworkFiles.map((file) => file.name));
       setCategory(parsed.request.category);
-      setBrandName(parsed.request.expected.brandName ?? "");
-      setClassType(parsed.request.expected.classType ?? "");
-      setAbvPercent(parsed.request.expected.abvPercent === null ? "" : String(parsed.request.expected.abvPercent));
-      setProof(parsed.request.expected.proof === null ? "" : String(parsed.request.expected.proof));
-      setIncludeGovernmentWarning(parsed.request.expected.governmentWarning !== null);
-      setAdditionalExpectedFields(parsed.request.expected.additionalFields);
+      if (parsed.request.schemaVersion === "verification-request-v2") {
+        setBrandName(selectedCheckValue(parsed.request.checks, "brand_name") ?? "");
+        setClassType(selectedCheckValue(parsed.request.checks, "class_type") ?? "");
+        setAbvPercent(selectedCheckValue(parsed.request.checks, "alcohol_content") ?? "");
+        setProof(selectedCheckValue(parsed.request.checks, "proof") ?? "");
+        setIncludeGovernmentWarning(hasSelectedCheck(parsed.request.checks, "government_warning"));
+        setAdditionalExpectedFields([]);
+      } else {
+        setBrandName(parsed.request.expected.brandName ?? "");
+        setClassType(parsed.request.expected.classType ?? "");
+        setAbvPercent(parsed.request.expected.abvPercent === null ? "" : String(parsed.request.expected.abvPercent));
+        setProof(parsed.request.expected.proof === null ? "" : String(parsed.request.expected.proof));
+        setIncludeGovernmentWarning(parsed.request.expected.governmentWarning !== null);
+        setAdditionalExpectedFields(parsed.request.expected.additionalFields);
+      }
       setCaseName(parsed.displayName);
       setFile(artworkFiles[0] ?? null);
       setAdditionalFiles(artworkFiles.slice(1));
@@ -685,10 +792,12 @@ export default function VerifyPage() {
         closeEntry: false,
         successMessage: `${parsed.displayName} was added to the queue${autoProcess ? " and started automatically" : ""}.`,
       });
+      setFileImportProgress({ completed: 1, total: 1, phase: "adding" });
     } catch (caught) {
       setError(caught instanceof SyntaxError ? "The application file is not valid JSON." : caught instanceof Error ? caught.message : "The case could not be imported.");
     } finally {
       setImportingCase(false);
+      setFileImportProgress(null);
     }
   };
 
@@ -712,10 +821,11 @@ export default function VerifyPage() {
     let imported = 0;
     let duplicates = 0;
     setImportingCase(true);
+    setFileImportProgress({ completed: 0, total: preview.ready.length, phase: "adding" });
     setError("");
     setImportSummary("");
     try {
-      for (const pair of preview.ready) {
+      for (const [index, pair] of preview.ready.entries()) {
         try {
           // Bulk import is deliberately two-phase. Creating every item first
           // lets us start recognition in the same newest-first order shown in
@@ -735,14 +845,17 @@ export default function VerifyPage() {
             : caught instanceof Error ? caught.message : "could not be imported";
           issues.push(`${pair.application.name}: ${message}`);
         }
+        setFileImportProgress({ completed: index + 1, total: preview.ready.length, phase: "adding" });
       }
       if (autoProcess) {
-        for (const created of [...createdCases].reverse()) {
+        setFileImportProgress({ completed: 0, total: createdCases.length, phase: "starting_scans" });
+        for (const [index, created] of [...createdCases].reverse().entries()) {
           const response = await apiFetch(`${API_URL}/api/v1/cases/${created.caseId}/scan`, { method: "POST" });
           if (!response.ok) {
             const payload = await response.json().catch(() => null);
             issues.push(`${created.displayName}: ${errorMessage(payload, "could not start recognition")}`);
           }
+          setFileImportProgress({ completed: index + 1, total: createdCases.length, phase: "starting_scans" });
         }
       }
       await refreshQueue();
@@ -755,6 +868,7 @@ export default function VerifyPage() {
       setError(caught instanceof Error ? caught.message : "The batch could not be imported.");
     } finally {
       setImportingCase(false);
+      setFileImportProgress(null);
     }
   };
 
@@ -788,8 +902,8 @@ export default function VerifyPage() {
     setActiveTab("settings");
   };
 
-  const clearRecognitionCache = async () => {
-    if (!window.confirm("Clear all cached OCR and LLM recognition results on this server? Existing case results will not be changed.")) return;
+  const performClearRecognitionCache = async () => {
+    setConfirmation(null);
     setCacheClearing(true);
     setCacheError("");
     try {
@@ -802,6 +916,14 @@ export default function VerifyPage() {
       setCacheClearing(false);
     }
   };
+
+  const clearRecognitionCache = () => setConfirmation({
+    title: "Clear recognition cache?",
+    message: "This removes cached OCR and LLM recognition results from this server. Existing case results will not change.",
+    confirmLabel: "Clear cache",
+    destructive: true,
+    onConfirm: performClearRecognitionCache,
+  });
 
   const saveSettings = async () => {
     const nextMode = readerCapabilities.visionAvailable ? readerModeDraft : "ocr";
@@ -838,13 +960,19 @@ export default function VerifyPage() {
         detail = (await claim.json()) as QueueCaseDetail;
         await refreshQueue();
       }
-      setCategory(detail.category);
-      setBrandName(detail.expected.brandName ?? "");
-      setClassType(detail.expected.classType ?? "");
-      setAbvPercent(detail.expected.abvPercent === null ? "" : String(detail.expected.abvPercent));
-      setProof(detail.expected.proof === null ? "" : String(detail.expected.proof));
-      setIncludeGovernmentWarning(detail.expected.governmentWarning !== null);
-      setAdditionalExpectedFields(detail.expected.additionalFields ?? []);
+      setCategory(detail.category ?? "distilled_spirits");
+      setBrandName(detail.expected?.brandName ?? selectedCheckValue(detail.checks, "brand_name") ?? "");
+      setClassType(detail.expected?.classType ?? selectedCheckValue(detail.checks, "class_type") ?? "");
+      setAbvPercent(detail.expected?.abvPercent === null || detail.expected?.abvPercent === undefined
+        ? selectedCheckValue(detail.checks, "alcohol_content") ?? ""
+        : String(detail.expected.abvPercent));
+      setProof(detail.expected?.proof === null || detail.expected?.proof === undefined
+        ? selectedCheckValue(detail.checks, "proof") ?? ""
+        : String(detail.expected.proof));
+      setIncludeGovernmentWarning(detail.expected?.governmentWarning !== null && detail.expected?.governmentWarning !== undefined
+        ? true
+        : hasSelectedCheck(detail.checks, "government_warning"));
+      setAdditionalExpectedFields(detail.expected?.additionalFields ?? []);
       setFile(null);
       setAdditionalFiles([]);
       setPreviewUrl("");
@@ -862,12 +990,43 @@ export default function VerifyPage() {
     }
   };
 
-  const openNextReview = async (completedReview = false) => {
-    setFinishedReviewQueue(completedReview);
+  const showEmptyReviewWorkspace = (completedReview = false) => {
+    setFinishedReviewQueue(completedReview && reviewWorkspaceFilter === "review_only");
+    reset();
+    setFile(null);
+    setAdditionalFiles([]);
+    setPreviewUrl("");
+    setActiveTab("review");
+  };
+
+  const openReviewWorkspace = async () => {
+    setFinishedReviewQueue(false);
     const cases = await refreshQueue();
-    const next = cases.find((item) => needsHumanReview(item) && (!item.assignedToUserId || item.assignedToUserId === currentUser?.userId));
+    const available = reviewWorkspaceCases(cases, reviewWorkspaceFilter, currentUser?.userId);
+    const next = available.find((item) => item.caseId === activeCase?.caseId) ?? available[0];
     if (next) {
-      setFinishedReviewQueue(false);
+      await openCase(next.caseId);
+      return;
+    }
+    showEmptyReviewWorkspace(false);
+  };
+
+  const navigateReview = async (direction: -1 | 1) => {
+    if (activeReviewIndex < 0) return;
+    const target = filteredReviewCases[activeReviewIndex + direction];
+    if (target) await openCase(target.caseId);
+  };
+
+  const changeReviewWorkspaceFilter = async (filter: ReviewWorkspaceFilter) => {
+    setFinishedReviewQueue(false);
+    setQueuePreferences((current) => ({
+      ...DEFAULT_QUEUE_PREFERENCES,
+      ...current,
+      reviewWorkspaceFilter: filter,
+    }));
+    const available = reviewWorkspaceCases(queueCases, filter, currentUser?.userId);
+    const next = available.find((item) => item.caseId === activeCase?.caseId) ?? available[0];
+    if (next) {
       await openCase(next.caseId);
       return;
     }
@@ -953,8 +1112,8 @@ export default function VerifyPage() {
     setCurrentUser(null); setAuthState("login"); setQueueCases([]); setQueueLoading(false);
   };
 
-  const clearQueue = async () => {
-    if (!window.confirm("Clear every case from this local testing queue? This permanently deletes queued artwork, including removed cases.")) return;
+  const performClearQueue = async () => {
+    setConfirmation(null);
     setClearingQueue(true);
     setQueueError("");
     try {
@@ -976,8 +1135,17 @@ export default function VerifyPage() {
     }
   };
 
+  const clearQueue = () => setConfirmation({
+    title: "Clear work queue?",
+    message: "This permanently deletes every case and its queued artwork, including removed cases.",
+    confirmLabel: "Clear queue",
+    destructive: true,
+    onConfirm: performClearQueue,
+  });
+
   const saveDecision = async (outcome: CaseOutcome) => {
     if (!activeCase) return;
+    const previousIndex = filteredReviewCases.findIndex((item) => item.caseId === activeCase.caseId);
     setSavingDecision(true);
     setError("");
     try {
@@ -991,8 +1159,21 @@ export default function VerifyPage() {
         throw new Error(errorMessage(payload, `Decision could not be saved (${response.status})`));
       }
       const updated = (await response.json()) as QueueCaseDetail;
-      setActiveCase(updated);
-      await openNextReview(true);
+      const cases = await refreshQueue();
+      const available = reviewWorkspaceCases(cases, reviewWorkspaceFilter, currentUser?.userId);
+      const retainedIndex = available.findIndex((item) => item.caseId === updated.caseId);
+      const next = retainedIndex >= 0
+        ? available[retainedIndex + 1]
+        : available[Math.min(Math.max(previousIndex, 0), available.length - 1)];
+      if (next) {
+        await openCase(next.caseId);
+      } else if (reviewWorkspaceFilter === "review_only") {
+        showEmptyReviewWorkspace(true);
+      } else {
+        setActiveCase(updated);
+        setAnalysis(updated.analysis);
+        setReviewNote(updated.reviewNote ?? "");
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The review decision could not be saved.");
     } finally {
@@ -1000,7 +1181,7 @@ export default function VerifyPage() {
     }
   };
 
-  if (authState === "checking") return <main className="loading-screen"><LoaderCircle className="spin" size={28} /><h1>Label verification</h1><p>Checking your session…</p></main>;
+  if (authState === "checking") return <main className="loading-screen"><LoaderCircle className="spin" size={28} /><h1>Human-in-the-loop review accelerator</h1><p>Checking your session…</p></main>;
   if (authState === "login" || !currentUser) return <LoginScreen onLogin={(username, password) => void login(username, password)} busy={loginBusy} error={loginError} conflict={sessionConflict} onReplace={() => pendingLogin && void login(pendingLogin.username, pendingLogin.password, true)} />;
 
   return (
@@ -1009,11 +1190,11 @@ export default function VerifyPage() {
         <a className="verify-console-brand" href="/" aria-label="Return to the work queue">
           <Menu size={21} />
           <span>RO</span>
-          <b>Regulatory operations console</b>
+          <b>Label review workspace</b>
         </a>
-        <div className="verify-product-title" aria-label="Label Verification">
+        <div className="verify-product-title" aria-label="Human-in-the-loop review accelerator">
           <ShieldCheck size={21} />
-          <strong>Label verification</strong>
+          <strong>Human-in-the-loop review accelerator</strong>
         </div>
         <div className="topbar-user"><span><UserRound size={14} /> {currentUser.username}</span><button type="button" onClick={() => void logout()}><LogOut size={14} /> Sign out</button></div>
       </header>
@@ -1021,14 +1202,52 @@ export default function VerifyPage() {
         <button className={activeTab === "queue" ? "active" : ""} type="button" onClick={() => { setActiveTab("queue"); void refreshQueue(); }}>
           <ClipboardList size={17} /> Work queue
         </button>
-        <button className={activeTab === "review" ? "active" : ""} type="button" onClick={() => void openNextReview(false)}>
+        <button className={activeTab === "review" ? "active" : ""} type="button" onClick={() => void openReviewWorkspace()}>
           <ScanText size={17} /> Review
-          {reviewableCaseCount > 0 && <em>{reviewableCaseCount}</em>}
+          {queueCases.filter((item) => needsHumanReview(item) && (!item.assignedToUserId || item.assignedToUserId === currentUser.userId)).length > 0 && (
+            <em>{queueCases.filter((item) => needsHumanReview(item) && (!item.assignedToUserId || item.assignedToUserId === currentUser.userId)).length}</em>
+          )}
         </button>
         <button className={activeTab === "settings" ? "active" : ""} type="button" onClick={openSettings}>
           <Settings2 size={17} /> Settings
         </button>
       </nav>
+
+      {activeTab === "review" && (
+        <section className="verify-review-toolbar" aria-label="Review navigation and filters">
+          <label>
+            <span>Show</span>
+            <select
+              value={reviewWorkspaceFilter}
+              onChange={(event) => void changeReviewWorkspaceFilter(event.target.value as ReviewWorkspaceFilter)}
+            >
+              <option value="all">All completed cases</option>
+              <option value="not_human_confirmed">All except human confirmed</option>
+              <option value="review_only">Review only</option>
+              <option value="failed">Failed</option>
+            </select>
+          </label>
+          <nav aria-label="Cases in the current review filter">
+            <button
+              type="button"
+              aria-label="Previous case"
+              disabled={submitting || activeReviewIndex <= 0}
+              onClick={() => void navigateReview(-1)}
+            >
+              <ChevronLeft size={17} />
+            </button>
+            <span>{activeReviewIndex >= 0 ? activeReviewIndex + 1 : 0} of {filteredReviewCases.length}</span>
+            <button
+              type="button"
+              aria-label="Next case"
+              disabled={submitting || activeReviewIndex < 0 || activeReviewIndex >= filteredReviewCases.length - 1}
+              onClick={() => void navigateReview(1)}
+            >
+              <ChevronRight size={17} />
+            </button>
+          </nav>
+        </section>
+      )}
 
       {activeTab === "queue" ? (
         <WorkQueue
@@ -1038,7 +1257,6 @@ export default function VerifyPage() {
           scanningCaseId={scanningCaseId}
           removingCaseId={removingCaseId}
           clearingQueue={clearingQueue}
-          onNewCase={() => openQueueEntry("single")}
           onBatchImport={() => openQueueEntry("batch")}
           onCatalogImport={() => openQueueEntry("catalog")}
           onOpenCase={(caseId) => void openCase(caseId)}
@@ -1080,6 +1298,7 @@ export default function VerifyPage() {
               validatingBatch={validatingBatch}
               batchPreview={batchPreview}
               importSummary={importSummary}
+              importProgress={fileImportProgress}
               onCategoryChange={setCategory}
               onBrandNameChange={setBrandName}
               onClassTypeChange={setClassType}
@@ -1138,9 +1357,9 @@ export default function VerifyPage() {
           </div>
         </section>
       ) : (
-      <div className={`verify-body ${analysis ? "" : "no-analysis"}`}>
-        {analysis && (
-          <aside className="verify-intake has-result">
+      <div className="verify-body">
+        <aside className={`verify-intake ${analysis ? "has-result" : ""}`}>
+          {analysis ? (
             <div className="verify-side-summary">
               <div className="verify-side-heading">
                 <h1>Application</h1>
@@ -1170,8 +1389,16 @@ export default function VerifyPage() {
                 </div>
               </section>
             </div>
-          </aside>
-        )}
+          ) : (
+            <div className="verify-review-empty">
+              <ScanText size={38} />
+              <span className="eyebrow">Review workspace</span>
+              <h2>{reviewEmptyCopy.title}</h2>
+              <p>{reviewEmptyCopy.body}</p>
+              <button type="button" onClick={() => setActiveTab("queue")}>Go to work queue</button>
+            </div>
+          )}
+        </aside>
 
         <section className="verify-main">
           {!analysis ? (
@@ -1187,8 +1414,8 @@ export default function VerifyPage() {
                 <>
                   <ScanText size={38} />
                   <span className="eyebrow">Review workspace</span>
-                  <h2>{finishedReviewQueue ? "No more cases to review" : "No cases to review"}</h2>
-                  <p>{finishedReviewQueue ? "You’ve completed every case currently routed for review." : "Machine-routed review cases will appear here when they are ready."}</p>
+                  <h2>{reviewEmptyCopy.title}</h2>
+                  <p>{reviewEmptyCopy.body}</p>
                   <button className="verify-welcome-action" type="button" onClick={() => setActiveTab("queue")}>Back to work queue</button>
                 </>
               )}
@@ -1354,18 +1581,47 @@ export default function VerifyPage() {
                     })}
                     {visibleAdditionalRuleResults.length > 0 && (
                       <section className="verify-rule-group" role="rowgroup">
-                        <h2><ClipboardList size={17} />Additional expected text</h2>
+                        <h2><ClipboardList size={17} />{activeCase?.requestSchemaVersion === "verification-request-v2" ? "Configured checks" : "Additional expected text"}</h2>
                         {visibleAdditionalRuleResults.map((rule) => (
                           <div className={`verify-rule-row additional-field ${rule.automatedStatus}`} key={rule.fieldId} role="row">
                             <span className="verify-rule-field" role="cell" title={rule.explanation}>{rule.label}</span>
-                            <span className="verify-rule-value" role="cell" title={rule.expectedValue}>{displayValue(rule.expectedValue)}</span>
+                            <span className="verify-rule-value" role="cell" title={rule.expectedValue ?? ""}>{displayValue(rule.expectedValue)}</span>
                             <span className="verify-rule-value detected" role="cell" title={rule.detectedValue ?? ""}>{displayValue(rule.detectedValue)}</span>
                             <span className="verify-rule-status" role="cell" title={rule.explanation}>
                               {rule.automatedStatus === "matches" ? <CheckCircle2 size={20} /> : rule.automatedStatus === "discrepancy" ? <XCircle size={20} /> : <AlertTriangle size={20} />}
                               <span><b>{statusLabel(rule.automatedStatus)}</b>{rule.automatedStatus === "review" && <small>{rule.explanation}</small>}</span>
                             </span>
-                            <span className="verify-evidence-cell verify-transcript-evidence" role="cell" title={rule.evidenceQuote ?? "The expected phrase was not found in the reader transcript."}>
-                              {rule.evidenceQuote ? "Transcript" : "—"}
+                            <span className="verify-evidence-cell" role="cell" title={rule.evidenceQuote ?? "The expected phrase was not found in the reader transcript."}>
+                              {(() => {
+                                const ids = (rule.evidenceBlockIds ?? []).filter((id) => (evidenceRegionsById.get(id)?.boxes.length ?? 0) > 0);
+                                const located = ids.length > 0;
+                                const pinned = ids.some((id) => pinnedEvidence.includes(id));
+                                const source = analysis.readerMode === "ocr" ? "ocr" : "vision";
+                                const readerName = source === "ocr" ? "Tesseract" : "Gemini";
+                                const readerLabel = source === "ocr" ? "OCR" : "LLM";
+                                return (
+                                  <button
+                                    className={`source-${source}`}
+                                    type="button"
+                                    disabled={!located}
+                                    aria-pressed={pinned}
+                                    aria-label={located ? `Inspect ${readerName} evidence for ${rule.label}` : `No ${readerName} evidence located for ${rule.label}`}
+                                    title={located ? `${readerName} literal-text box · hover to zoom, click to pin` : `${readerName} could not uniquely locate the matched text`}
+                                    onMouseEnter={() => located && showHoveredEvidence(ids)}
+                                    onMouseLeave={clearHoveredEvidence}
+                                    onFocus={() => located && showHoveredEvidence(ids)}
+                                    onBlur={clearHoveredEvidence}
+                                    onClick={() => {
+                                      if (!located) return;
+                                      setHoverEvidence([]);
+                                      setPinnedEvidence(pinned ? [] : ids);
+                                    }}
+                                  >
+                                    <Eye size={18} />
+                                    <small>{readerLabel}</small>
+                                  </button>
+                                );
+                              })()}
                             </span>
                           </div>
                         ))}
@@ -1379,6 +1635,7 @@ export default function VerifyPage() {
         </section>
       </div>
       )}
+      {confirmation && <ConfirmationDialog request={confirmation} onCancel={() => setConfirmation(null)} />}
     </main>
   );
 }

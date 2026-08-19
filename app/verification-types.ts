@@ -6,6 +6,13 @@ export type AdditionalExpectedField = {
   expectedText: string;
   matchMode: "literal_phrase";
 };
+
+/** A selected check from the server-side, versioned field library. */
+export type FieldLibraryCheck = {
+  fieldId: string;
+  required: boolean;
+  expectedValue: string | null;
+};
 export type AnalysisStatus = "queued" | "analyzing" | "complete" | "error";
 export type DecisionStatus =
   | "awaiting_analysis"
@@ -58,6 +65,15 @@ export type VisionFieldCandidate = {
   uncertainty: string | null;
 };
 
+export type VisionTextBlock = {
+  blockId: string;
+  text: string;
+  modelBoundingBox: BoundingBox | null;
+  readingOrder: number;
+  legibility: "clear" | "uncertain" | "unreadable";
+  uncertainty: string | null;
+};
+
 export type VisionRun = {
   schemaVersion: "vision-extraction-v1";
   promptVersion: string;
@@ -70,6 +86,7 @@ export type VisionRun = {
     panelId: string;
     fullText: string;
     fields: VisionFieldCandidate[];
+    textBlocks: VisionTextBlock[];
     warningPresentation: {
       headingAllCaps: boolean | null;
       headingOnlyBold: boolean | null;
@@ -149,11 +166,12 @@ export type RuleResult = {
 export type AdditionalRuleResult = {
   fieldId: string;
   label: string;
-  matchMode: "literal_phrase";
+  matchMode: "literal_phrase" | "text" | "regex" | "warning";
   automatedStatus: "matches" | "discrepancy" | "review" | "does_not_apply";
-  expectedValue: string;
+  expectedValue: string | null;
   detectedValue: string | null;
   evidenceQuote: string | null;
+  evidenceBlockIds: string[];
   reasonCode: string;
   explanation: string;
   requiresHumanReview: boolean;
@@ -194,7 +212,8 @@ export type QueueCase = {
   displayName: string;
   createdAt: string;
   updatedAt: string;
-  category: BeverageCategory;
+  requestSchemaVersion: "verification-request-v1" | "verification-request-v2";
+  category: BeverageCategory | null;
   expected: {
     brandName: string | null;
     classType: string | null;
@@ -205,7 +224,8 @@ export type QueueCase = {
       body: string;
     } | null;
     additionalFields: AdditionalExpectedField[];
-  };
+  } | null;
+  checks: FieldLibraryCheck[];
   panel: {
     panelId: string;
     file: string;
@@ -249,6 +269,7 @@ export type QueuePreferences = {
   reviewFilter: "all" | "attention" | "automated" | "human";
   assignmentFilter: "all" | "mine" | "unassigned";
   showRemoved: boolean;
+  reviewWorkspaceFilter: "all" | "not_human_confirmed" | "review_only" | "failed";
 };
 
 export type QueueCaseDetail = QueueCase & {

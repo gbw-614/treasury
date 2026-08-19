@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.schemas import SourceCatalog
 from app.services.s3_catalog import CatalogError, CatalogSource
 
 
@@ -21,3 +22,17 @@ def test_catalog_requires_https_configuration(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(CatalogError) as error:
         CatalogSource.configured()
     assert error.value.code == "invalid_catalog_url"
+
+
+def test_v2_catalog_requires_and_accepts_field_library_version() -> None:
+    payload = {
+        "schemaVersion": "verification-source-catalog-v2",
+        "catalogVersion": "test-v2",
+        "fieldLibraryVersion": "v1",
+        "cases": [],
+    }
+    assert SourceCatalog.model_validate(payload).field_library_version == "v1"
+
+    payload.pop("fieldLibraryVersion")
+    with pytest.raises(ValueError, match="fieldLibraryVersion"):
+        SourceCatalog.model_validate(payload)

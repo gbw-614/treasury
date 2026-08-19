@@ -18,6 +18,7 @@ from .extraction import (
     VisionFieldCandidate,
     VisionPanelExtraction,
     VisionRun,
+    VisionTextBlock,
     VisionWarningPresentation,
 )
 from .queue import (
@@ -39,6 +40,7 @@ from .requests import (
     ExpectedGovernmentWarning,
     ExpectedValues,
     ExplicitExpectedValues,
+    FieldCheck,
     PanelInput,
 )
 from .results import (
@@ -90,6 +92,7 @@ __all__ = [
     "ExpectedGovernmentWarning",
     "ExpectedValues",
     "ExplicitExpectedValues",
+    "FieldCheck",
     "FieldKey",
     "HealthResponse",
     "HumanDecisionRequest",
@@ -122,5 +125,6 @@ __all__ = [
     "VisionFieldCandidate",
     "VisionPanelExtraction",
     "VisionRun",
+    "VisionTextBlock",
     "VisionWarningPresentation",
 ]

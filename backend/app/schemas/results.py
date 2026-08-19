@@ -53,11 +53,12 @@ class RuleResult(ContractModel):
 class AdditionalRuleResult(ContractModel):
     field_id: str
     label: str
-    match_mode: Literal["literal_phrase"] = "literal_phrase"
+    match_mode: Literal["literal_phrase", "text", "regex", "warning"] = "literal_phrase"
     automated_status: AutomatedStatus
-    expected_value: str
+    expected_value: str | None
     detected_value: str | None
     evidence_quote: str | None
+    evidence_block_ids: tuple[str, ...] = ()
     reason_code: str
     explanation: str
     requires_human_review: bool

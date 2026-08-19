@@ -8,16 +8,26 @@ import time
 from decimal import Decimal
 from uuid import uuid4
 
+from rapidfuzz import fuzz
+
+from app.field_library import (
+    CheckEvaluation,
+    evaluate_check,
+    get_field_definition,
+    normalize_text,
+)
 from app.schemas import (
     AdditionalRuleResult,
     AnalysisRequest,
     AnalysisResponse,
     AutomatedStatus,
     BeverageCategory,
+    BoundingBox,
     FieldKey,
     LocalizationResult,
     LocationStatus,
     OcrRun,
+    OcrToken,
     OverallSummary,
     ReviewTask,
     RuleResult,
@@ -26,6 +36,7 @@ from app.schemas import (
     VisionFieldCandidate,
     VisionPanelExtraction,
     VisionRun,
+    VisionTextBlock,
 )
 from app.services import recognition_cache
 from app.services.openrouter_vision import cache_identity as vision_cache_identity
@@ -217,7 +228,7 @@ def _candidate_map(
     # Brand and class/type are literal presence checks. Prefer a candidate that
     # contains the supplied phrase over the first equally legible semantic
     # classification returned from another panel.
-    if request is not None:
+    if request is not None and request.expected is not None:
         expected_by_field = {
             FieldKey.BRAND_NAME: request.expected.brand_name,
             FieldKey.CLASS_TYPE: request.expected.class_type,
@@ -448,6 +459,7 @@ def _rules(
     vision: VisionRun,
     locations: tuple[LocalizationResult, ...],
 ) -> tuple[RuleResult, ...]:
+    assert request.expected is not None
     candidates = _candidate_map(vision, request)
     by_location = {location.field_key: location for location in locations}
     expected = request.expected
@@ -684,6 +696,7 @@ def _additional_rules(
     vision: VisionRun,
 ) -> tuple[AdditionalRuleResult, ...]:
     """Compare user-supplied optional fields against literal reader text only."""
+    assert request.expected is not None
     results: list[AdditionalRuleResult] = []
     for field in request.expected.additional_fields:
         transcript_match = _transcript_phrase_match(vision, field.expected_text)
@@ -722,6 +735,359 @@ def _additional_rules(
     return tuple(results)
 
 
+def _vision_block_ids(panel: VisionPanelExtraction, quote: str | None) -> tuple[str, ...]:
+    """Find the smallest consecutive literal-block span supporting a quote."""
+    if not quote or not panel.text_blocks:
+        return ()
+    target = " ".join(re.findall(r"[a-z0-9]+", quote.casefold().replace("&", " and ")))
+    if not target:
+        return ()
+    blocks = tuple(sorted(panel.text_blocks, key=lambda block: block.reading_order))
+    for width in range(1, len(blocks) + 1):
+        for start in range(len(blocks) - width + 1):
+            selected = blocks[start : start + width]
+            combined = " ".join(block.text for block in selected)
+            normalized = " ".join(
+                re.findall(r"[a-z0-9]+", combined.casefold().replace("&", " and "))
+            )
+            if target in normalized:
+                return tuple(block.block_id for block in selected)
+    return ()
+
+
+CLOSEST_TEXT_MIN_SCORE = 80.0
+
+
+def _closest_text_block_span(
+    vision: VisionRun, expected_value: str
+) -> tuple[VisionPanelExtraction, str, tuple[str, ...], float] | None:
+    """Return the highest-scoring reasonably sized consecutive block span."""
+    expected = normalize_text(expected_value)
+    expected_word_count = len(expected.split())
+    if not expected or expected_word_count == 0:
+        return None
+    minimum_words = max(1, (expected_word_count + 1) // 2)
+    maximum_words = max(minimum_words, (expected_word_count * 3 + 1) // 2)
+    best: tuple[VisionPanelExtraction, str, tuple[str, ...], float] | None = None
+    for panel in vision.panels:
+        blocks = tuple(sorted(panel.text_blocks, key=lambda block: block.reading_order))
+        for start in range(len(blocks)):
+            for end in range(start + 1, len(blocks) + 1):
+                selected = blocks[start:end]
+                literal = " ".join(block.text for block in selected).strip()
+                normalized = normalize_text(literal)
+                word_count = len(normalized.split())
+                if word_count > maximum_words:
+                    break
+                if word_count < minimum_words:
+                    continue
+                score = float(fuzz.ratio(expected, normalized))
+                if best is None or score > best[3]:
+                    best = (
+                        panel,
+                        literal,
+                        tuple(block.block_id for block in selected),
+                        score,
+                    )
+    if best is None or best[3] < CLOSEST_TEXT_MIN_SCORE:
+        return None
+    return best
+
+
+def _union_vision_block_boxes(
+    panel: VisionPanelExtraction, block_ids: tuple[str, ...]
+) -> BoundingBox | None:
+    boxes = tuple(
+        block.model_bounding_box
+        for block in panel.text_blocks
+        if block.block_id in block_ids and block.model_bounding_box is not None
+    )
+    if not boxes:
+        return None
+    left = min(box.x for box in boxes)
+    top = min(box.y for box in boxes)
+    right = max(box.x + box.width for box in boxes)
+    bottom = max(box.y + box.height for box in boxes)
+    return BoundingBox(x=left, y=top, width=right - left, height=bottom - top)
+
+
+def _legacy_candidates_from_literal_blocks(
+    request: AnalysisRequest, vision: VisionRun
+) -> VisionRun:
+    """Derive v1 candidates locally so the model never assigns semantic roles."""
+    if request.expected is None or not any(panel.text_blocks for panel in vision.panels):
+        return vision
+    expected = request.expected
+    checks: tuple[tuple[FieldKey, str, str | None], ...] = (
+        (FieldKey.BRAND_NAME, "brand_name", expected.brand_name),
+        (FieldKey.CLASS_TYPE, "class_type", expected.class_type),
+        (
+            FieldKey.ALCOHOL_CONTENT,
+            "alcohol_content",
+            str(expected.abv_percent) if expected.abv_percent is not None else None,
+        ),
+        (
+            FieldKey.PROOF,
+            "proof",
+            str(expected.proof) if expected.proof is not None else None,
+        ),
+        (
+            FieldKey.GOVERNMENT_WARNING_HEADING,
+            "brand_name",
+            expected.government_warning.heading if expected.government_warning else None,
+        ),
+        (
+            FieldKey.GOVERNMENT_WARNING_BODY,
+            "brand_name",
+            expected.government_warning.body if expected.government_warning else None,
+        ),
+    )
+    fields_by_panel: dict[str, list[VisionFieldCandidate]] = {
+        panel.panel_id: [] for panel in vision.panels
+    }
+    for field_key, definition_id, expected_value in checks:
+        if expected_value is None:
+            continue
+        definition = get_field_definition(definition_id)
+        for panel in vision.panels:
+            evaluation = evaluate_check(definition, panel.full_text, expected_value)
+            if not evaluation.matched or not evaluation.evidence_quote:
+                continue
+            block_ids = _vision_block_ids(panel, evaluation.evidence_quote)
+            supporting = tuple(
+                block for block in panel.text_blocks if block.block_id in block_ids
+            )
+            uncertain = tuple(block for block in supporting if block.legibility != "clear")
+            fields_by_panel[panel.panel_id].append(VisionFieldCandidate(
+                field_key=field_key,
+                raw_text=evaluation.evidence_quote,
+                normalized_value=evaluation.detected_value,
+                evidence_quote=evaluation.evidence_quote,
+                model_bounding_box=_union_vision_block_boxes(panel, block_ids),
+                panel_id=panel.panel_id,
+                legibility="uncertain" if uncertain else "clear",
+                uncertainty="; ".join(
+                    block.uncertainty or f"{block.block_id} was marked {block.legibility}"
+                    for block in uncertain
+                ) or None,
+            ))
+            break
+    return vision.model_copy(update={
+        "panels": tuple(
+            panel.model_copy(update={"fields": tuple(fields_by_panel[panel.panel_id])})
+            for panel in vision.panels
+        ),
+    })
+
+
+def _library_rules(
+    request: AnalysisRequest,
+    vision: VisionRun,
+) -> tuple[AdditionalRuleResult, ...]:
+    """Apply v2 field-library checks to literal reader transcripts.
+
+    This deliberately operates on full text rather than a closed FieldKey enum,
+    so new configured fields do not require a model-prompt or category-engine
+    change. Evidence localization remains best-effort for the legacy fields.
+    """
+    results: list[AdditionalRuleResult] = []
+    for check in request.checks:
+        definition = get_field_definition(check.field_id)
+        if not check.required:
+            results.append(
+                AdditionalRuleResult(
+                    field_id=definition.id,
+                    label=definition.name,
+                    match_mode=definition.check_type,
+                    automated_status=AutomatedStatus.DOES_NOT_APPLY,
+                    expected_value=check.expected_value,
+                    detected_value=None,
+                    evidence_quote=None,
+                    reason_code="not_required",
+                    explanation="This field is not required for this case.",
+                    requires_human_review=False,
+                )
+            )
+            continue
+        panel_evaluations = tuple(
+            (panel, evaluate_check(definition, panel.full_text, check.expected_value))
+            for panel in vision.panels
+        )
+        if definition.check_type == "regex":
+            # Regex values are properties of the complete label set. Looking
+            # panel-by-panel could accept one matching value while overlooking
+            # a conflicting value on another panel or elsewhere on a template.
+            evaluation = evaluate_check(
+                definition,
+                "\n".join(panel.full_text for panel in vision.panels),
+                check.expected_value,
+            )
+            selected_panel = next(
+                (
+                    panel
+                    for panel in vision.panels
+                    if any(
+                        _vision_block_ids(panel, quote)
+                        for quote in evaluation.evidence_quotes
+                    )
+                ),
+                vision.panels[0],
+            )
+        else:
+            selected = next(
+                ((panel, item) for panel, item in panel_evaluations if item.matched),
+                None,
+            ) or next(
+                ((panel, item) for panel, item in panel_evaluations if item.detected_value is not None),
+                panel_evaluations[0],
+            )
+            selected_panel, evaluation = selected
+        matched = evaluation.matched
+        reason_code = evaluation.reason_code
+        explanation = evaluation.explanation
+
+        if (
+            definition.check_type == "text"
+            and not matched
+            and check.expected_value
+        ):
+            closest = _closest_text_block_span(vision, check.expected_value)
+            if closest:
+                selected_panel, literal, _, score = closest
+                evaluation = CheckEvaluation(
+                    matched=False,
+                    detected_value=literal,
+                    evidence_quote=literal,
+                    reason_code="closest_text_differs",
+                    explanation=(
+                        "The expected phrase was not found exactly; the closest "
+                        f"literal wording scored {score:.1f}/100 and requires review."
+                    ),
+                    evidence_quotes=(literal,),
+                )
+                reason_code = evaluation.reason_code
+                explanation = evaluation.explanation
+
+        if definition.check_type == "regex":
+            block_ids = tuple(dict.fromkeys(
+                block_id
+                for panel in vision.panels
+                for quote in evaluation.evidence_quotes
+                for block_id in _vision_block_ids(panel, quote)
+            ))
+            supporting_blocks = tuple(
+                block
+                for panel in vision.panels
+                for block in panel.text_blocks
+                if block.block_id in block_ids
+            )
+        else:
+            block_ids = _vision_block_ids(selected_panel, evaluation.evidence_quote)
+            supporting_blocks = tuple(
+                block
+                for block in selected_panel.text_blocks
+                if block.block_id in block_ids
+            )
+        uncertain_blocks = tuple(
+            block for block in supporting_blocks if block.legibility != "clear"
+        )
+        if matched and uncertain_blocks:
+            matched = False
+            reason_code = "matched_text_uncertain"
+            details = "; ".join(
+                block.uncertainty or f"{block.block_id} was marked {block.legibility}"
+                for block in uncertain_blocks
+            )
+            explanation = (
+                "The literal text appears to match, but Gemini marked the supporting "
+                f"transcription as uncertain: {details}"
+            )
+        results.append(
+            AdditionalRuleResult(
+                field_id=definition.id,
+                label=definition.name,
+                match_mode=definition.check_type,
+                automated_status=(
+                    AutomatedStatus.MATCHES if matched else AutomatedStatus.REVIEW
+                ),
+                expected_value=check.expected_value,
+                detected_value=evaluation.detected_value,
+                evidence_quote=evaluation.evidence_quote,
+                evidence_block_ids=block_ids,
+                reason_code=reason_code,
+                explanation=explanation,
+                requires_human_review=not matched,
+            )
+        )
+        # Text and presentation are intentionally separate results. OCR can
+        # establish the statutory words and their geometry, but it cannot
+        # establish whether only the heading is bold. Do not discard a text
+        # match merely because the reviewer must still assess typography.
+        if definition.check_type == "warning" and matched:
+            if request.reader_mode == "ocr":
+                presentation_status = AutomatedStatus.REVIEW
+                presentation_detected = None
+                presentation_reason = "warning_heading_boldness_human_review"
+                presentation_explanation = (
+                    "The statutory wording was located. Confirm visually that "
+                    "only the GOVERNMENT WARNING: heading is bold relative to "
+                    "the warning body."
+                )
+            else:
+                presentation = selected_panel.warning_presentation
+                failures: list[str] = []
+                unknown = presentation is None
+                if presentation:
+                    if presentation.heading_all_caps is False:
+                        failures.append("The warning heading is not all uppercase.")
+                    if presentation.heading_only_bold is False:
+                        failures.append("The warning heading is not the only portion bold relative to the body.")
+                    if presentation.continuous_paragraph is False:
+                        failures.append("The warning is not one continuous paragraph.")
+                    if presentation.separate_and_apart is False:
+                        failures.append("The warning is not separate and apart from surrounding text.")
+                    if presentation.legible_contrast is False:
+                        failures.append("The warning is not readily legible against its background.")
+                    unknown = any(value is None for value in (
+                        presentation.heading_all_caps,
+                        presentation.heading_only_bold,
+                        presentation.continuous_paragraph,
+                        presentation.separate_and_apart,
+                        presentation.legible_contrast,
+                    )) or presentation.text_appears_unusually_small is None
+                    if presentation.text_appears_unusually_small is True:
+                        unknown = True
+                        failures.append("The warning appears unusually small and needs human review.")
+                presentation_status = (
+                    AutomatedStatus.MATCHES
+                    if not failures and not unknown
+                    else AutomatedStatus.REVIEW
+                )
+                presentation_detected = "Confirmed by Gemini" if presentation_status == AutomatedStatus.MATCHES else None
+                presentation_reason = "warning_presentation_noncompliant" if failures else "warning_presentation_uncertain"
+                presentation_explanation = " ".join(failures) or (
+                    presentation.uncertainty
+                    if presentation and presentation.uncertainty
+                    else "Gemini could not confirm the warning presentation."
+                )
+            results.append(
+                AdditionalRuleResult(
+                    field_id="government_warning_presentation",
+                    label="Warning presentation",
+                    match_mode="warning",
+                    automated_status=presentation_status,
+                    expected_value="Only the heading is bold",
+                    detected_value=presentation_detected,
+                    evidence_quote=evaluation.evidence_quote,
+                    evidence_block_ids=block_ids,
+                    reason_code=presentation_reason,
+                    explanation=presentation_explanation,
+                    requires_human_review=presentation_status == AutomatedStatus.REVIEW,
+                )
+            )
+    return tuple(results)
+
+
 def recompare_analysis(
     request: AnalysisRequest,
     previous: AnalysisResponse,
@@ -740,14 +1106,20 @@ def recompare_analysis(
         # Rebuild the expected-value-backed OCR candidates, while retaining
         # the immutable reader provenance/hash from the original analysis.
         vision = previous.vision_run.model_copy(update={"panels": surrogate.panels})
+    elif request.schema_version == "verification-request-v1":
+        vision = _legacy_candidates_from_literal_blocks(request, vision)
     candidates = _candidate_map(vision, request)
     locations = _localizations(
         previous.panels[0],
         candidates,
         {run.panel_id: run for run in ocr_runs},
     )
-    rules = _rules(request, vision, locations)
-    additional_rules = _additional_rules(request, vision)
+    if request.schema_version == "verification-request-v2":
+        rules = ()
+        additional_rules = _library_rules(request, vision)
+    else:
+        rules = _rules(request, vision, locations)
+        additional_rules = _additional_rules(request, vision)
     if any(rule.automated_status == AutomatedStatus.DISCREPANCY for rule in rules):
         overall = OverallSummary.AUTOMATED_DISCREPANCY
     elif any(rule.automated_status == AutomatedStatus.REVIEW for rule in (*rules, *additional_rules)):
@@ -841,6 +1213,60 @@ def _ocr_surrogate_vision(
     This is intentionally a match-or-review reader: it will not manufacture a
     differing value from a free-text transcript and turn it into a hard fail.
     """
+
+    def positioned_line_blocks(run: OcrRun) -> tuple[VisionTextBlock, ...]:
+        """Preserve Tesseract geometry as ordered literal line blocks."""
+        lines: dict[str, list[OcrToken]] = {}
+        for token in sorted(run.tokens, key=lambda item: item.reading_order):
+            lines.setdefault(token.line_id, []).append(token)
+        blocks: list[VisionTextBlock] = []
+        for index, tokens in enumerate(lines.values()):
+            left = min(token.bounding_box.x for token in tokens)
+            top = min(token.bounding_box.y for token in tokens)
+            right = max(
+                token.bounding_box.x + token.bounding_box.width for token in tokens
+            )
+            bottom = max(
+                token.bounding_box.y + token.bounding_box.height for token in tokens
+            )
+            blocks.append(VisionTextBlock(
+                block_id=f"ocr-{run.panel_id}-line-{index + 1:04d}",
+                text=" ".join(token.text for token in tokens),
+                model_bounding_box=BoundingBox(
+                    x=left,
+                    y=top,
+                    width=right - left,
+                    height=bottom - top,
+                ),
+                reading_order=index,
+                legibility="clear",
+            ))
+        return tuple(blocks)
+
+    # v2 needs no expected-text backed OCR surrogate: generic checks run over
+    # the OCR transcript directly below. Its positioned line blocks retain the
+    # token-derived evidence geometry used by the review UI.
+    if request.schema_version == "verification-request-v2":
+        return VisionRun(
+            schema_version="vision-extraction-v1",
+            prompt_version="ocr-transcript-matcher-v1",
+            provider="local",
+            requested_model="Tesseract OCR",
+            response_model="Tesseract OCR",
+            provider_request_id="",
+            raw_response_sha256="",
+            panels=tuple(
+                VisionPanelExtraction(
+                    panel_id=panel.panel_id,
+                    full_text=run.transcript,
+                    fields=(),
+                    text_blocks=positioned_line_blocks(run),
+                )
+                for panel, run in zip(panels, ocr_runs)
+            ),
+            duration_ms=sum(run.preprocessing_duration_ms + run.ocr_duration_ms for run in ocr_runs),
+        )
+    assert request.expected is not None
     expected_by_field: dict[FieldKey, str | None] = {
         FieldKey.BRAND_NAME: request.expected.brand_name,
         FieldKey.CLASS_TYPE: request.expected.class_type,
@@ -952,6 +1378,8 @@ async def run_connected_analysis(
         if use_vision
         else _ocr_surrogate_vision(request, normalized_panels, ocr_runs)
     )
+    if request.schema_version == "verification-request-v1" and use_vision:
+        vision = _legacy_candidates_from_literal_blocks(request, vision)
 
     alignment_started = time.perf_counter()
     candidates = _candidate_map(vision, request)
@@ -962,8 +1390,12 @@ async def run_connected_analysis(
     )
     alignment_duration = (time.perf_counter() - alignment_started) * 1000
     rules_started = time.perf_counter()
-    rules = _rules(request, vision, locations)
-    additional_rules = _additional_rules(request, vision)
+    if request.schema_version == "verification-request-v2":
+        rules = ()
+        additional_rules = _library_rules(request, vision)
+    else:
+        rules = _rules(request, vision, locations)
+        additional_rules = _additional_rules(request, vision)
     rules_duration = (time.perf_counter() - rules_started) * 1000
 
     if any(rule.automated_status == AutomatedStatus.DISCREPANCY for rule in rules):

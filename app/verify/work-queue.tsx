@@ -35,7 +35,6 @@ type QueueProps = {
   scanningCaseId: string;
   removingCaseId: string;
   clearingQueue: boolean;
-  onNewCase: () => void;
   onBatchImport: () => void;
   onCatalogImport: () => void;
   onOpenCase: (caseId: string) => void;
@@ -71,6 +70,7 @@ const DEFAULT_QUEUE_FILTERS: QueueFilters = {
   reviewFilter: "all",
   assignmentFilter: "all",
   showRemoved: false,
+  reviewWorkspaceFilter: "review_only",
 };
 
 function savedQueueFilters(): QueueFilters {
@@ -86,6 +86,7 @@ function savedQueueFilters(): QueueFilters {
       reviewFilter: value.reviewFilter === "attention" || value.reviewFilter === "automated" || value.reviewFilter === "human" ? value.reviewFilter : "all",
       assignmentFilter: value.assignmentFilter === "mine" || value.assignmentFilter === "unassigned" ? value.assignmentFilter : "all",
       showRemoved: value.showRemoved === true,
+      reviewWorkspaceFilter: value.reviewWorkspaceFilter === "all" || value.reviewWorkspaceFilter === "not_human_confirmed" || value.reviewWorkspaceFilter === "failed" ? value.reviewWorkspaceFilter : "review_only",
     };
   } catch {
     return DEFAULT_QUEUE_FILTERS;
@@ -106,7 +107,8 @@ function workflowLabel(item: QueueCase) {
 function categoryLabel(category: QueueCase["category"]) {
   if (category === "distilled_spirits") return "Distilled spirits";
   if (category === "malt_beverage") return "Malt beverage";
-  return "Wine";
+  if (category === "wine") return "Wine";
+  return "—";
 }
 
 function formatTime(value: string) {
@@ -125,7 +127,6 @@ export default function WorkQueue({
   scanningCaseId,
   removingCaseId,
   clearingQueue,
-  onNewCase,
   onBatchImport,
   onCatalogImport,
   onOpenCase,
@@ -148,6 +149,7 @@ export default function WorkQueue({
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>(initialFilters.reviewFilter);
   const [assignmentFilter, setAssignmentFilter] = useState<QueueFilters["assignmentFilter"]>(initialFilters.assignmentFilter);
   const [showRemoved, setShowRemoved] = useState(initialFilters.showRemoved);
+  const [reviewWorkspaceFilter, setReviewWorkspaceFilter] = useState(initialFilters.reviewWorkspaceFilter);
 
   // Server preferences arrive just after the authenticated workspace mounts.
   // Keep localStorage as a useful fallback, then let the user's account win.
@@ -159,16 +161,17 @@ export default function WorkQueue({
     setReviewFilter(savedFilters.reviewFilter);
     setAssignmentFilter(savedFilters.assignmentFilter);
     setShowRemoved(savedFilters.showRemoved);
+    setReviewWorkspaceFilter(savedFilters.reviewWorkspaceFilter);
   }, [savedFilters]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     window.localStorage.setItem(
       QUEUE_FILTERS_STORAGE_KEY,
-      JSON.stringify({ query, outcomeFilter, reviewFilter, assignmentFilter, showRemoved }),
+      JSON.stringify({ query, outcomeFilter, reviewFilter, assignmentFilter, showRemoved, reviewWorkspaceFilter }),
     );
-    onFiltersChange({ query, outcomeFilter, reviewFilter, assignmentFilter, showRemoved });
-  }, [assignmentFilter, outcomeFilter, onFiltersChange, query, reviewFilter, showRemoved]);
+    onFiltersChange({ query, outcomeFilter, reviewFilter, assignmentFilter, showRemoved, reviewWorkspaceFilter });
+  }, [assignmentFilter, outcomeFilter, onFiltersChange, query, reviewFilter, reviewWorkspaceFilter, showRemoved]);
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -183,10 +186,11 @@ export default function WorkQueue({
       if (!normalizedQuery) return true;
       return [
         item.displayName,
-        item.expected.brandName,
-        item.expected.classType,
+        item.expected?.brandName,
+        item.expected?.classType,
+        ...item.checks.flatMap((check) => [check.fieldId, check.expectedValue]),
         item.caseId,
-        ...(item.expected.additionalFields ?? []).flatMap((field) => [field.label, field.expectedText]),
+        ...(item.expected?.additionalFields ?? []).flatMap((field) => [field.label, field.expectedText]),
       ]
         .filter((value): value is string => Boolean(value))
         .some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
@@ -207,20 +211,16 @@ export default function WorkQueue({
         <div>
           <span className="eyebrow">Review operations</span>
           <h1>Work queue</h1>
-          <p>Automated comparison keeps clear decisions moving and sends uncertain evidence to a reviewer.</p>
         </div>
         <div className="queue-hero-actions">
           <button className="queue-clear-button" type="button" disabled={clearingQueue || cases.length === 0} onClick={onClearQueue}>
             {clearingQueue ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />} Clear queue
           </button>
           <button className="queue-batch-button" type="button" onClick={onBatchImport}>
-            <FilePlus2 size={17} /> Batch import
+            <FilePlus2 size={17} /> Import from files
           </button>
           <button className="queue-catalog-button" type="button" onClick={onCatalogImport}>
             <CloudDownload size={17} /> Import from catalog
-          </button>
-          <button className="queue-new-button" type="button" onClick={onNewCase}>
-            <FilePlus2 size={18} /> Add case
           </button>
         </div>
       </header>
@@ -283,11 +283,10 @@ export default function WorkQueue({
             <div className="queue-empty">
               <FilePlus2 size={28} />
               <b>{cases.length ? "No cases match these filters" : "Your work queue is empty"}</b>
-              <span>{cases.length ? "Change the filters to see more cases." : "Add an application and its label artwork to get started."}</span>
+              <span>{cases.length ? "Change the filters to see more cases." : "Import application records and label artwork to get started."}</span>
               {!cases.length && (
                 <div className="queue-empty-actions">
-                  <button type="button" onClick={onNewCase}>Add case</button>
-                  <button type="button" onClick={onBatchImport}>Batch import</button>
+                  <button type="button" onClick={onBatchImport}>Import from files</button>
                   <button type="button" onClick={onCatalogImport}>Import from catalog</button>
                 </div>
               )}
@@ -300,7 +299,7 @@ export default function WorkQueue({
               <div className={`queue-row ${item.removedAt ? "is-removed" : ""}`} role="row" key={item.caseId}>
                 <span className="queue-case-name">
                   <b>{item.displayName}</b>
-                  <small>{item.expected.brandName ?? "Expected brand not provided"} · {item.panel.file}{item.panels.length > 1 ? ` · ${item.panels.length} panels` : ""}</small>
+                  <small>{item.expected?.brandName ?? item.checks.find((check) => check.fieldId === "brand_name")?.expectedValue ?? "Expected brand not provided"} · {item.panel.file}{item.panels.length > 1 ? ` · ${item.panels.length} panels` : ""}</small>
                   {item.duplicateImageCount > 0 && <em className="queue-duplicate-tag" title={`Same artwork as ${item.duplicateImageCount} other queue ${item.duplicateImageCount === 1 ? "item" : "items"}`}><Copy size={11} /> Duplicate artwork</em>}
                 </span>
                 <span>{categoryLabel(item.category)}</span>

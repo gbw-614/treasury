@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from .common import BeverageCategory, ContractModel
-from .requests import ExplicitExpectedValues
+from .requests import ExplicitExpectedValues, FieldCheck
 from .results import AnalysisResponse
 from .sources import CatalogProvenance
 
@@ -61,8 +61,12 @@ class CaseSummary(ContractModel):
     display_name: str
     created_at: datetime
     updated_at: datetime
-    category: BeverageCategory
-    expected: ExplicitExpectedValues
+    # v1 queue entries retain `expected`; v2 entries carry their selected
+    # field-library checks instead. Both are persisted request snapshots.
+    request_schema_version: Literal["verification-request-v1", "verification-request-v2"]
+    category: BeverageCategory | None = None
+    expected: ExplicitExpectedValues | None = None
+    checks: tuple[FieldCheck, ...] = ()
     panel: CasePanel
     panels: tuple[CasePanel, ...] = ()
     processing_status: ProcessingStatus

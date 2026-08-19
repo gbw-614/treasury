@@ -1,7 +1,7 @@
 # Treasury Label Verification
 
-This repository contains the deployable TTB label-verification application. It
-combines the reviewer workflow, authenticated
+This directory is the canonical deployable repository for the TTB label
+verification application. It combines the reviewer workflow, authenticated
 shared queue, public reference catalog, recognition cache, blind OCR/LLM
 extraction, and deterministic expected-versus-detected comparison.
 
@@ -19,9 +19,7 @@ instance.
 - [Application architecture](docs/ARCHITECTURE.md)
 - [Public catalog integration](docs/public-s3-catalog.md)
 
-See [CURATION.md](CURATION.md) for the exact repository boundary. Downloaded
-labels, research results, recognition caches, local databases, and credentials
-are deliberately absent.
+See [CURATION.md](CURATION.md) for the repository boundary.
 
 ## Run locally
 

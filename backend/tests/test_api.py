@@ -23,7 +23,7 @@ from app.services import auth_store, case_store, s3_catalog
 from app.services.blind_request import build_blind_vision_request
 from app.services.image_validation import validate_image
 from scripts.export_contract_schemas import CONTRACTS, render_schema
-from tests.analysis_fixtures import CANONICAL_WARNING_BODY, build_mock_analysis
+from tests.mock_analysis import CANONICAL_WARNING_BODY, build_mock_analysis
 
 client = TestClient(app)
 
@@ -159,6 +159,54 @@ def test_queue_preserves_additional_expected_label_fields(
             "expectedText": "Product of Italy",
             "matchMode": "literal_phrase",
         }
+    ]
+
+
+def test_catalog_import_accepts_and_serializes_v2_checks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("app.services.case_store.DATA_ROOT", tmp_path)
+    image = image_bytes()
+    application = json.dumps({
+        "schemaVersion": "verification-request-v2",
+        "checks": [
+            {"fieldId": "brand_name", "required": True, "expectedValue": "V2 catalog brand"},
+            {"fieldId": "alcohol_content", "required": True, "expectedValue": "45"},
+            {"fieldId": "government_warning", "required": True},
+        ],
+        "panels": [{"panelId": "p01", "file": "label.png"}],
+    }).encode()
+    application_object = SourceObject(
+        key="cases/v2/application.json", sha256=hashlib.sha256(application).hexdigest(), bytes=len(application)
+    )
+    panel_object = SourcePanel(
+        panelId="p01", key="cases/v2/p01.png", sha256=hashlib.sha256(image).hexdigest(), bytes=len(image)
+    )
+    catalog = SourceCatalog.model_validate({
+        "schemaVersion": "verification-source-catalog-v1", "catalogVersion": "v2-test",
+        "cases": [{
+            "sourceCaseId": "v2-case", "displayName": None,
+            "application": application_object.model_dump(by_alias=True),
+            "panels": [panel_object.model_dump(by_alias=True)],
+        }],
+    })
+    source = s3_catalog.CatalogSource("https://catalog.example.test/catalog/v2.json")
+    objects = {application_object.key: application, panel_object.key: image}
+    monkeypatch.setattr(s3_catalog, "configured_catalog", lambda: (source, catalog))
+    monkeypatch.setattr(s3_catalog.CatalogSource, "fetch_object", lambda _self, obj: objects[obj.key])
+
+    imported = client.post("/api/v1/sources/s3/import", json={"sourceCaseIds": ["v2-case"], "autoProcess": False})
+
+    assert imported.status_code == 201, imported.text
+    case = client.get(f"/api/v1/cases/{imported.json()['importedCaseIds'][0]}")
+    assert case.status_code == 200, case.text
+    assert case.json()["requestSchemaVersion"] == "verification-request-v2"
+    assert case.json()["expected"] is None
+    assert case.json()["displayName"] == "V2 catalog brand"
+    assert case.json()["checks"] == [
+        {"fieldId": "brand_name", "required": True, "expectedValue": "V2 catalog brand"},
+        {"fieldId": "alcohol_content", "required": True, "expectedValue": "45"},
+        {"fieldId": "government_warning", "required": True, "expectedValue": None},
     ]
 
 

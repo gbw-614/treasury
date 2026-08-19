@@ -13,6 +13,9 @@ const eslintConfig = defineConfig([
     ".next/**",
     ".vinext/**",
     ".wrangler/**",
+    // Local agent worktrees may contain their own dependency and build trees.
+    // They are not part of this application or its validation surface.
+    ".claude/**",
     // The production Vite entrypoint is app/main.tsx. These retained research
     // surfaces use the older Next-compatible toolchain and are not shipped.
     "app/page.tsx",

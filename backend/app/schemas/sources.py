@@ -48,12 +48,17 @@ class SourceCatalogCase(ContractModel):
 
 
 class SourceCatalog(ContractModel):
-    schema_version: Literal["verification-source-catalog-v1"]
+    # v2 carries the field-library version used by its application requests.
+    # Keep v1 readable so already published catalogues remain importable.
+    schema_version: Literal["verification-source-catalog-v1", "verification-source-catalog-v2"]
     catalog_version: Annotated[str, Field(min_length=1, max_length=120)]
+    field_library_version: Annotated[str | None, Field(min_length=1, max_length=120)] = None
     cases: tuple[SourceCatalogCase, ...]
 
     @model_validator(mode="after")
     def unique_cases(self) -> SourceCatalog:
+        if self.schema_version == "verification-source-catalog-v2" and not self.field_library_version:
+            raise ValueError("v2 catalog requires fieldLibraryVersion")
         source_case_ids = [case.source_case_id for case in self.cases]
         if len(source_case_ids) != len(set(source_case_ids)):
             raise ValueError("catalog sourceCaseId values must be unique")

@@ -19,7 +19,7 @@ from app.services.connected_analysis import run_connected_analysis
 from app.services.image_validation import validate_image
 from app.services.openrouter_vision import _normalized_box_to_pixels
 from app.services.quote_alignment import align_quote
-from tests.analysis_fixtures import CANONICAL_WARNING_BODY, build_mock_analysis
+from tests.mock_analysis import CANONICAL_WARNING_BODY, build_mock_analysis
 
 
 @pytest.fixture(autouse=True)
@@ -137,6 +137,65 @@ def test_ocr_mode_does_not_call_the_vision_provider(monkeypatch) -> None:
     assert result.reader_mode == "ocr"
     assert result.vision_run.provider == "local"
     assert result.ocr_run.engine == "fixture"
+
+
+def test_v2_ocr_mode_returns_token_backed_evidence_for_configured_checks(
+    monkeypatch,
+) -> None:
+    content = image_bytes()
+    panel, blank = validate_image(content, "p01")
+    ocr_request = AnalysisRequest.model_validate({
+        "schemaVersion": "verification-request-v2",
+        "readerMode": "ocr",
+        "checks": [
+            {
+                "fieldId": "brand_name",
+                "required": True,
+                "expectedValue": "Treasury Sample",
+            },
+            {"fieldId": "government_warning", "required": True},
+        ],
+        "panels": [{"panelId": "p01", "file": "label.png"}],
+    })
+    fixture = build_mock_analysis(ocr_request, panel, blank=False)
+
+    def vision_was_not_called(*_args: object) -> None:
+        raise AssertionError("OCR-only mode must not call the vision provider")
+
+    monkeypatch.setattr(
+        "app.services.connected_analysis.run_openrouter_vision",
+        vision_was_not_called,
+    )
+    monkeypatch.setattr(
+        "app.services.connected_analysis.run_tesseract",
+        lambda content, panel: fixture.ocr_run,
+    )
+
+    result = asyncio.run(
+        run_connected_analysis(ocr_request, panel, content, blank=blank)
+    )
+    by_field = {rule.field_id: rule for rule in result.additional_rule_results}
+    block_ids = {
+        block.block_id
+        for extraction in result.vision_run.panels
+        for block in extraction.text_blocks
+        if block.model_bounding_box is not None
+    }
+
+    assert result.reader_mode == "ocr"
+    assert block_ids
+    assert by_field["brand_name"].automated_status == "matches"
+    assert set(by_field["brand_name"].evidence_block_ids) <= block_ids
+    assert by_field["brand_name"].evidence_block_ids
+    assert by_field["government_warning"].automated_status == "matches"
+    assert set(by_field["government_warning"].evidence_block_ids) <= block_ids
+    assert by_field["government_warning"].evidence_block_ids
+    assert by_field["government_warning_presentation"].automated_status == "review"
+    assert by_field["government_warning_presentation"].reason_code == (
+        "warning_heading_boldness_human_review"
+    )
+    assert set(by_field["government_warning_presentation"].evidence_block_ids) <= block_ids
+    assert by_field["government_warning_presentation"].evidence_block_ids
 
 
 def test_llm_mode_does_not_call_tesseract(monkeypatch) -> None:

@@ -4,17 +4,16 @@ import base64
 
 from app.schemas import ValidatedPanel
 
-BLIND_EXTRACTION_PROMPT = """Read the supplied alcohol-label artwork panels without access to any application or expected values.
+BLIND_EXTRACTION_PROMPT = """Read the supplied alcohol-label artwork without access to any application or expected values.
 
-Return a literal full-text transcript and classify only text that is visibly present. For each visible field, return at most one candidate:
-- brand_name: only the literal product brand as printed; exclude nearby bylines, producer attributions, and signatures such as "by RICCO"
-- class_type: the beverage class or type as printed
-- alcohol_content: the complete printed ABV phrase; normalizedValue must be the numeric ABV percentage
-- proof: the complete printed proof phrase; normalizedValue must be the numeric proof
-- government_warning_heading: only the printed warning heading
-- government_warning_body: only the printed statutory warning body, excluding the heading
+Transcribe all visible text as literal textBlocks in natural reading order. Use one block per coherent printed line or tightly grouped multiline passage. Preserve the visible spelling, numbers, punctuation, capitalization, and accents. Do not classify any text as a brand, class/type, alcohol value, producer, or other semantic role. The server—not you—will apply deterministic field definitions to the transcript.
 
-evidenceQuote must be a verbatim, contiguous quote from the image and must also appear in fullText. Preserve capitalization and punctuation in rawText and evidenceQuote.
+For every textBlock:
+- text must be a verbatim transcription of visible text; never autocorrect or expand abbreviations
+- evidenceBox1000 must tightly enclose exactly that printed block, excluding neighboring text
+- use legibility=uncertain or unreadable rather than guessing obscured characters
+
+The full image spans x=0..1000 from left to right and y=0..1000 from top to bottom. Use {xMin, yMin, xMax, yMax}, with the top-left as the origin. Do not swap x and y. If text is visible but cannot be localized dependably, return evidenceBox1000=null and explain why.
 
 When a government warning is visible, return warningPresentation as a separate visual assessment:
 - headingAllCaps: true only if every letter in the printed heading is uppercase
@@ -26,9 +25,7 @@ When a government warning is visible, return warningPresentation as a separate v
 
 Use false only for a clearly observed failure. Use null for any property that cannot be determined dependably, and explain that uncertainty. Do not estimate physical type size in millimeters from artwork pixels. If no government warning is visible, return warningPresentation=null.
 
-For each returned field, also locate evidenceQuote with evidenceBox1000 on its own panel. The full image spans x=0..1000 from left to right and y=0..1000 from top to bottom. Return {xMin, yMin, xMax, yMax}, using the top-left as the origin. The rectangle must tightly enclose every visible line of evidenceQuote and exclude neighboring text. Do not swap x and y. If the quote is visible but cannot be localized dependably, return evidenceBox1000=null and explain why in uncertainty.
-
-Omit fields that are not visible. Never infer obscured text, autocorrect wording, compare against expected data, or return a compliance decision. Use uncertainty and observations to describe genuine legibility problems."""
+Never infer obscured text, compare against expected data, decide what a field means, or return a compliance decision. Use observations only for genuine image/legibility issues."""
 
 
 def build_blind_vision_request(
@@ -43,7 +40,7 @@ def build_blind_vision_request(
         raise ValueError("Every blind-request panel needs matching image bytes")
     return {
         "schemaVersion": "blind-vision-request-v1",
-        "promptVersion": "blind-extraction-v7",
+        "promptVersion": "blind-extraction-v8",
         "instructions": BLIND_EXTRACTION_PROMPT,
         "panels": [
             {
