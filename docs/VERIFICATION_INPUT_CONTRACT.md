@@ -14,6 +14,7 @@ independent expected value. The reader never receives either.
 ```json
 {
   "schemaVersion": "verification-request-v2",
+  "caseReference": "COLA-26189001000380",
   "category": "wine",
   "checks": [
     {"fieldId": "brand_name", "required": true, "expectedValue": "LIVING ROOTS WINE & CO."},
@@ -28,6 +29,10 @@ independent expected value. The reader never receives either.
   "readerMode": "llm"
 }
 ```
+
+`caseReference` is optional operational metadata (for example, a COLA number)
+used in the queue and CSV audit report. It is never sent to a reader or used in
+the comparison result.
 
 The initial library is versioned in
 `backend/app/config/field-library-v1.json` and supports:

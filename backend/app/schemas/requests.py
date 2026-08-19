@@ -73,6 +73,9 @@ class FieldCheck(ContractModel):
 
 class AnalysisRequest(ContractModel):
     schema_version: Literal["verification-request-v1", "verification-request-v2"]
+    # A caller-provided operational identifier, such as a COLA number. It is
+    # intentionally not used by extraction or matching rules.
+    case_reference: ShortText | None = None
     # Category remains available for v1 and metadata, but v2 checks do not
     # use a beverage-category rule engine.
     category: BeverageCategory | None = None

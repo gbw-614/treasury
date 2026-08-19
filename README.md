@@ -81,6 +81,11 @@ local-storage fallback while the server preference is loading. Cases form a
 shared queue; a new case is assigned to its uploader unless explicitly
 released.
 
+The work queue's **Download report** action creates a CSV audit export. It
+includes the optional caller/catalogue case reference, case and artwork IDs,
+assignment and decision state, reader mode, check counts, errors, notes, and
+timestamps. Removed cases remain in the export.
+
 Recognition concurrency is intentionally explicit. The defaults allow one
 case pipeline, one Tesseract subprocess, and up to three concurrent outbound
 vision calls (useful for multi-panel cases):

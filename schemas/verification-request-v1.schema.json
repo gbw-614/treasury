@@ -219,6 +219,20 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "caseReference": {
+      "anyOf": [
+        {
+          "maxLength": 250,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Casereference"
+    },
     "category": {
       "anyOf": [
         {

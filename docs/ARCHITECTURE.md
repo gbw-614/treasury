@@ -69,6 +69,8 @@ preferences, and authentication audit rows. Both use tables in the same
 - Up to three enabled reviewer accounts are supported.
 - Queue filters and reader preferences are stored per user.
 - Cases share one queue and default to the uploading reviewer.
+- A case may carry an optional operational `caseReference`; catalog imports
+  preserve the manifest's reference and the queue can export it in CSV reports.
 
 Recognition results are cached by reader type, artwork hash, and reader
 version. Clearing that cache never changes completed case analyses.

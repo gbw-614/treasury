@@ -32,6 +32,9 @@ class SourcePanel(SourceObject):
 
 class SourceCatalogCase(ContractModel):
     source_case_id: Annotated[str, Field(min_length=1, max_length=120)]
+    # A stable, operator-facing reference from the source catalogue. It is
+    # copied into the imported application request and never used for matching.
+    case_reference: Annotated[str | None, Field(min_length=1, max_length=250)] = None
     display_name: Annotated[str | None, Field(max_length=250)] = None
     category: BeverageCategory | None = None
     application: SourceObject
@@ -72,6 +75,7 @@ class CatalogProvenance(ContractModel):
     catalog_url: str
     catalog_version: str
     source_case_id: str
+    case_reference: str | None = None
     application: SourceObject
     panels: tuple[SourcePanel, ...]
 

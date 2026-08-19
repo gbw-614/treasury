@@ -28,6 +28,7 @@ type EntryProps = {
   includeGovernmentWarning: boolean;
   additionalFields: AdditionalExpectedField[];
   caseName: string;
+  caseReference: string;
   file: File | null;
   additionalFiles: File[];
   autoProcess: boolean;
@@ -46,6 +47,7 @@ type EntryProps = {
   onIncludeGovernmentWarningChange: (value: boolean) => void;
   onAdditionalFieldsChange: (value: AdditionalExpectedField[]) => void;
   onCaseNameChange: (value: string) => void;
+  onCaseReferenceChange: (value: string) => void;
   onAutoProcessChange: (value: boolean) => void;
   onSelectUploadedFiles: (files: File[]) => void;
   onRemovePanel: (index: number) => void;
@@ -66,6 +68,7 @@ export default function CaseEntryForm({
   includeGovernmentWarning,
   additionalFields,
   caseName,
+  caseReference,
   file,
   additionalFiles,
   autoProcess,
@@ -84,6 +87,7 @@ export default function CaseEntryForm({
   onIncludeGovernmentWarningChange,
   onAdditionalFieldsChange,
   onCaseNameChange,
+  onCaseReferenceChange,
   onAutoProcessChange,
   onSelectUploadedFiles,
   onRemovePanel,
@@ -205,6 +209,10 @@ export default function CaseEntryForm({
         <label>
           <span>Case name <i>optional</i></span>
           <input value={caseName} onChange={(event) => onCaseNameChange(event.target.value)} maxLength={250} placeholder="Defaults to the brand name" />
+        </label>
+        <label>
+          <span>COLA case ID / reference <i>optional</i></span>
+          <input value={caseReference} onChange={(event) => onCaseReferenceChange(event.target.value)} maxLength={250} placeholder="e.g. COLA-26189001000380" />
         </label>
         <div className="verify-number-grid">
           <label>

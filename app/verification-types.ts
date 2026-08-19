@@ -209,6 +209,7 @@ export type DecisionSource = "automated" | "human_confirmed" | "human_overridden
 
 export type QueueCase = {
   caseId: string;
+  caseReference: string | null;
   displayName: string;
   createdAt: string;
   updatedAt: string;

@@ -7,6 +7,7 @@ import {
   Eye,
   PanelLeftClose,
   FilePlus2,
+  FileDown,
   CloudDownload,
   LoaderCircle,
   Play,
@@ -35,6 +36,7 @@ type QueueProps = {
   scanningCaseId: string;
   removingCaseId: string;
   clearingQueue: boolean;
+  downloadingReport: boolean;
   onBatchImport: () => void;
   onCatalogImport: () => void;
   onOpenCase: (caseId: string) => void;
@@ -42,6 +44,7 @@ type QueueProps = {
   onRemoveCase: (caseId: string) => void;
   onRestoreCase: (caseId: string) => void;
   onClearQueue: () => void;
+  onDownloadReport: () => void;
   entry: ReactNode | null;
   onCloseEntry: () => void;
   currentUser: QueueUser;
@@ -127,6 +130,7 @@ export default function WorkQueue({
   scanningCaseId,
   removingCaseId,
   clearingQueue,
+  downloadingReport,
   onBatchImport,
   onCatalogImport,
   onOpenCase,
@@ -134,6 +138,7 @@ export default function WorkQueue({
   onRemoveCase,
   onRestoreCase,
   onClearQueue,
+  onDownloadReport,
   entry,
   onCloseEntry,
   currentUser,
@@ -186,6 +191,7 @@ export default function WorkQueue({
       if (!normalizedQuery) return true;
       return [
         item.displayName,
+        item.caseReference,
         item.expected?.brandName,
         item.expected?.classType,
         ...item.checks.flatMap((check) => [check.fieldId, check.expectedValue]),
@@ -213,6 +219,9 @@ export default function WorkQueue({
           <h1>Work queue</h1>
         </div>
         <div className="queue-hero-actions">
+          <button className="queue-report-button" type="button" disabled={downloadingReport || cases.length === 0} onClick={onDownloadReport}>
+            {downloadingReport ? <LoaderCircle className="spin" size={16} /> : <FileDown size={16} />} Download report
+          </button>
           <button className="queue-clear-button" type="button" disabled={clearingQueue || cases.length === 0} onClick={onClearQueue}>
             {clearingQueue ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />} Clear queue
           </button>

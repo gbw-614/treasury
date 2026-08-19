@@ -347,6 +347,7 @@ def _summary_from_row(row: sqlite3.Row, *, duplicate_image_count: int = 0) -> Ca
     request = AnalysisRequest.model_validate_json(row["request_json"])
     return CaseSummary(
         case_id=row["case_id"],
+        case_reference=request.case_reference,
         display_name=row["display_name"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],

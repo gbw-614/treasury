@@ -58,6 +58,7 @@ class CasePanel(ContractModel):
 
 class CaseSummary(ContractModel):
     case_id: str
+    case_reference: str | None = None
     display_name: str
     created_at: datetime
     updated_at: datetime

@@ -9,6 +9,7 @@ export type ImportedCase = {
   displayName: string;
   request: {
     schemaVersion: "verification-request-v1";
+    caseReference: string | null;
     category: BeverageCategory;
     expected: {
       brandName: string | null;
@@ -21,6 +22,7 @@ export type ImportedCase = {
     panels: Array<{ panelId: string; file: string }>;
   } | {
     schemaVersion: "verification-request-v2";
+    caseReference: string | null;
     category: BeverageCategory;
     checks: FieldLibraryCheck[];
     panels: Array<{ panelId: string; file: string }>;
@@ -227,6 +229,7 @@ export function parseCaseImport(payload: unknown, artworkFile: string | string[]
     throw new Error("The import JSON needs an expected object.");
   }
   const parsedCategory = category(input.category);
+  const caseReference = optionalText(input.caseReference ?? input.case_reference, "caseReference");
   const artworkFiles = Array.isArray(artworkFile) ? artworkFile : [artworkFile];
   if (!artworkFiles.length || artworkFiles.length > 6) {
     throw new Error("Choose between one and six artwork panels.");
@@ -246,6 +249,7 @@ export function parseCaseImport(payload: unknown, artworkFile: string | string[]
       displayName,
       request: {
         schemaVersion: "verification-request-v2",
+        caseReference,
         category: parsedCategory,
         checks,
         panels: artworkFiles.map((file, index) => ({ panelId: `p${String(index + 1).padStart(2, "0")}`, file })),
@@ -271,6 +275,7 @@ export function parseCaseImport(payload: unknown, artworkFile: string | string[]
     displayName,
     request: {
       schemaVersion: "verification-request-v1",
+      caseReference,
       category: parsedCategory,
       expected: { brandName, classType, abvPercent, proof, governmentWarning: parsedGovernmentWarning, additionalFields: parsedAdditionalFields },
       panels: artworkFiles.map((file, index) => ({

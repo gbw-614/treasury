@@ -71,6 +71,7 @@ const CANONICAL_WARNING = {
 
 type LegacyVerificationRequest = {
   schemaVersion: "verification-request-v1";
+  caseReference: string | null;
   category: BeverageCategory;
   expected: {
     brandName: string | null;
@@ -85,6 +86,7 @@ type LegacyVerificationRequest = {
 
 type LibraryVerificationRequest = {
   schemaVersion: "verification-request-v2";
+  caseReference: string | null;
   category: BeverageCategory;
   checks: FieldLibraryCheck[];
   panels: Array<{ panelId: string; file: string }>;
@@ -316,8 +318,10 @@ export default function VerifyPage() {
   const [removingCaseId, setRemovingCaseId] = useState("");
   const [claimingCaseId, setClaimingCaseId] = useState("");
   const [clearingQueue, setClearingQueue] = useState(false);
+  const [downloadingReport, setDownloadingReport] = useState(false);
   const [autoProcess, setAutoProcess] = useState(true);
   const [caseName, setCaseName] = useState("");
+  const [caseReference, setCaseReference] = useState("");
   const [importingCase, setImportingCase] = useState(false);
   const [validatingBatch, setValidatingBatch] = useState(false);
   const [batchPreview, setBatchPreview] = useState<BatchImportPreview | null>(null);
@@ -745,6 +749,7 @@ export default function VerifyPage() {
     await enqueueCase(
       {
         schemaVersion: "verification-request-v1",
+        caseReference: caseReference.trim() || null,
         category,
         expected: {
           brandName: brandName.trim() || null,
@@ -785,6 +790,7 @@ export default function VerifyPage() {
         setAdditionalExpectedFields(parsed.request.expected.additionalFields);
       }
       setCaseName(parsed.displayName);
+      setCaseReference(parsed.request.caseReference ?? "");
       setFile(artworkFiles[0] ?? null);
       setAdditionalFiles(artworkFiles.slice(1));
       setPreviewUrl(artworkFiles[0] ? URL.createObjectURL(artworkFiles[0]) : "");
@@ -885,6 +891,7 @@ export default function VerifyPage() {
   const openQueueEntry = (mode: "single" | "batch" | "catalog") => {
     reset();
     setCaseName("");
+    setCaseReference("");
     setIncludeGovernmentWarning(true);
     setAdditionalExpectedFields([]);
     setFile(null);
@@ -1143,6 +1150,32 @@ export default function VerifyPage() {
     onConfirm: performClearQueue,
   });
 
+  const downloadQueueReport = async () => {
+    setDownloadingReport(true);
+    setQueueError("");
+    try {
+      const response = await apiFetch(`${API_URL}/api/v1/cases/report.csv`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(errorMessage(payload, `Report could not be downloaded (${response.status})`));
+      }
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const filename = /filename="?([^";]+)"?/i.exec(disposition)?.[1] ?? "treasury-work-queue-report.csv";
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setQueueError(caught instanceof Error ? caught.message : "The work-queue report could not be downloaded.");
+    } finally {
+      setDownloadingReport(false);
+    }
+  };
+
   const saveDecision = async (outcome: CaseOutcome) => {
     if (!activeCase) return;
     const previousIndex = filteredReviewCases.findIndex((item) => item.caseId === activeCase.caseId);
@@ -1257,6 +1290,7 @@ export default function VerifyPage() {
           scanningCaseId={scanningCaseId}
           removingCaseId={removingCaseId}
           clearingQueue={clearingQueue}
+          downloadingReport={downloadingReport}
           onBatchImport={() => openQueueEntry("batch")}
           onCatalogImport={() => openQueueEntry("catalog")}
           onOpenCase={(caseId) => void openCase(caseId)}
@@ -1264,6 +1298,7 @@ export default function VerifyPage() {
           onRemoveCase={(caseId) => void removeCase(caseId)}
           onRestoreCase={(caseId) => void restoreCase(caseId)}
           onClearQueue={() => void clearQueue()}
+          onDownloadReport={() => void downloadQueueReport()}
           currentUser={currentUser}
           savedFilters={queuePreferences}
           onFiltersChange={saveQueuePreferences}
@@ -1289,6 +1324,7 @@ export default function VerifyPage() {
               includeGovernmentWarning={includeGovernmentWarning}
               additionalFields={additionalExpectedFields}
               caseName={caseName}
+              caseReference={caseReference}
               file={file}
               additionalFiles={additionalFiles}
               autoProcess={autoProcess}
@@ -1307,6 +1343,7 @@ export default function VerifyPage() {
               onIncludeGovernmentWarningChange={setIncludeGovernmentWarning}
               onAdditionalFieldsChange={setAdditionalExpectedFields}
               onCaseNameChange={setCaseName}
+              onCaseReferenceChange={setCaseReference}
               onAutoProcessChange={setAutoProcess}
               onSelectUploadedFiles={selectUploadedFiles}
               onRemovePanel={removePanel}

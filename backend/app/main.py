@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -352,6 +355,11 @@ def _import_one_catalog_case(
     try:
         application_content = source.fetch_object(item.application)
         request = _catalog_request(application_content, selection.reader_mode)
+        # The manifest is the catalogue's operator-facing index. Keep its
+        # stable reference on the imported case even when an older application
+        # JSON does not yet carry one itself.
+        if item.case_reference:
+            request = request.model_copy(update={"case_reference": item.case_reference})
         if tuple(panel.panel_id for panel in request.panels) != tuple(panel.panel_id for panel in item.panels):
             raise s3_catalog.CatalogError(
                 "panel_manifest_mismatch",
@@ -366,6 +374,7 @@ def _import_one_catalog_case(
             catalog_url=source.catalog_url,
             catalog_version=catalog.catalog_version,
             source_case_id=source_case_id,
+            case_reference=item.case_reference,
             application=item.application,
             panels=item.panels,
         )
@@ -559,6 +568,96 @@ def get_s3_catalog_import_job(
 @app.get("/api/v1/cases", response_model=CaseListResponse)
 def list_cases(_: CurrentUser = Depends(require_current_user)) -> CaseListResponse:
     return CaseListResponse(schema_version="case-queue-v1", cases=case_store.list_cases())
+
+
+@app.get("/api/v1/cases/report.csv")
+def download_cases_report(_: CurrentUser = Depends(require_current_user)) -> Response:
+    """Download a case-level audit report for the entire shared queue.
+
+    Removed cases stay in this export so a downloaded report remains an audit
+    record rather than a view of only the currently visible work.
+    """
+    destination = StringIO(newline="")
+    writer = csv.DictWriter(
+        destination,
+        fieldnames=(
+            "case_reference",
+            "case_id",
+            "display_name",
+            "category",
+            "artwork_files",
+            "source_case_id",
+            "created_by",
+            "assigned_to",
+            "processing_status",
+            "analysis_status",
+            "reader_mode",
+            "automated_outcome",
+            "outcome",
+            "decision_status",
+            "decision_source",
+            "human_reviewed",
+            "match_count",
+            "discrepancy_count",
+            "review_count",
+            "error_message",
+            "review_note",
+            "created_at",
+            "completed_at",
+            "reviewed_at",
+            "removed_at",
+        ),
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    for summary in case_store.list_cases():
+        case = case_store.get_case(summary.case_id)
+        if case is None:  # pragma: no cover - a case may be deleted between reads
+            continue
+        rules = (
+            (*case.analysis.rule_results, *case.analysis.additional_rule_results)
+            if case.analysis
+            else ()
+        )
+        status_counts = {
+            status: sum(1 for rule in rules if rule.automated_status == status)
+            for status in ("matches", "discrepancy", "review")
+        }
+        writer.writerow(
+            {
+                "case_reference": case.case_reference or "",
+                "case_id": case.case_id,
+                "display_name": case.display_name,
+                "category": case.category or "",
+                "artwork_files": "; ".join(panel.file for panel in case.panels),
+                "source_case_id": case.source.source_case_id if case.source else "",
+                "created_by": case.created_by_username or "",
+                "assigned_to": case.assigned_to_username or "",
+                "processing_status": case.processing_status,
+                "analysis_status": case.analysis_status,
+                "reader_mode": case.analysis.reader_mode if case.analysis else "",
+                "automated_outcome": case.automated_outcome or "",
+                "outcome": case.outcome or "",
+                "decision_status": case.decision_status,
+                "decision_source": case.decision_source or "",
+                "human_reviewed": str(bool(case.decision_source and case.decision_source.startswith("human_"))).lower(),
+                "match_count": status_counts["matches"],
+                "discrepancy_count": status_counts["discrepancy"],
+                "review_count": status_counts["review"],
+                "error_message": case.error_message or "",
+                "review_note": case.review_note or "",
+                "created_at": case.created_at.isoformat(),
+                "completed_at": case.updated_at.isoformat() if case.processing_status == "complete" else "",
+                "reviewed_at": case.reviewed_at.isoformat() if case.reviewed_at else "",
+                "removed_at": case.removed_at.isoformat() if case.removed_at else "",
+            }
+        )
+    filename = f"treasury-work-queue-{datetime.now(UTC):%Y-%m-%d}.csv"
+    return Response(
+        content=destination.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.delete("/api/v1/cases", response_model=ClearQueueResponse)

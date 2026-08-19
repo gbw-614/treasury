@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import io
 import json
@@ -162,6 +163,28 @@ def test_queue_preserves_additional_expected_label_fields(
     ]
 
 
+def test_queue_report_includes_case_reference_and_audit_status(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("app.services.case_store.DATA_ROOT", tmp_path)
+    payload = request_payload()
+    payload["caseReference"] = "COLA-TEST-00001"
+    created = enqueue(payload, image_bytes(), auto_process=False)
+    assert created.status_code == 201, created.text
+
+    report = client.get("/api/v1/cases/report.csv")
+
+    assert report.status_code == 200, report.text
+    assert report.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=\"treasury-work-queue-" in report.headers["content-disposition"]
+    rows = list(csv.DictReader(io.StringIO(report.text)))
+    assert len(rows) == 1
+    assert rows[0]["case_reference"] == "COLA-TEST-00001"
+    assert rows[0]["artwork_files"] == "label.png"
+    assert rows[0]["processing_status"] == "queued"
+    assert rows[0]["human_reviewed"] == "false"
+
+
 def test_catalog_import_accepts_and_serializes_v2_checks(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -232,6 +255,7 @@ def test_catalog_import_snapshots_cases_assigns_uploader_and_reports_duplicates(
         "catalogVersion": "test-v1",
         "cases": [{
             "sourceCaseId": "public-bourbon",
+            "caseReference": "COLA-TEST-00001",
             "displayName": "Public bourbon",
             "application": application_object.model_dump(by_alias=True),
             "panels": [panel_object.model_dump(by_alias=True)],
@@ -262,7 +286,9 @@ def test_catalog_import_snapshots_cases_assigns_uploader_and_reports_duplicates(
     assert case["createdByUsername"] == "contract-test"
     assert case["assignedToUsername"] == "contract-test"
     assert case["source"]["sourceCaseId"] == "public-bourbon"
+    assert case["source"]["caseReference"] == "COLA-TEST-00001"
     assert case["source"]["catalogVersion"] == "test-v1"
+    assert case["caseReference"] == "COLA-TEST-00001"
     work = case_store.get_case_work(body["importedCaseIds"][0])
     assert work is not None
     assert work[0].reader_mode == "ocr"
