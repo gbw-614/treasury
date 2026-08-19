@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "verification-request-v2",
+  "caseReference": "COLA-26197001000168",
+  "category": "distilled_spirits",
+  "checks": [
+    {
+      "fieldId": "brand_name",
+      "required": true,
+      "expectedValue": "Brazilian Cachaça"
+    },
+    {
+      "fieldId": "class_type",
+      "required": true,
+      "expectedValue": "Brazilian Cachaça"
+    },
+    {
+      "fieldId": "alcohol_content",
+      "required": true,
+      "expectedValue": "40"
+    },
+    {
+      "fieldId": "government_warning",
+      "required": true
+    }
+  ],
+  "panels": [
+    {
+      "panelId": "p01",
+      "file": "official-ttb-distilled_spirits-26197001000168.p01.png"
+    }
+  ],
+  "readerMode": "llm"
+}

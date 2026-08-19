@@ -1,0 +1,67 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# frontend build
+/dist/
+/.next/
+/.vinext/
+/.wrangler/
+
+# misc
+.DS_Store
+.idea/
+.claude/
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.tsbuildinfo
+
+# env files (can opt-in for committing if needed)
+.env*
+!.env.example
+
+/outputs/
+/work/
+/catalog-staging/
+/catalog/
+/annotation-pilot/
+/benchmark/
+/research/
+/backend/sample_data/
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-*
+
+# python backend
+/backend/.venv/
+/backend/.pytest_cache/
+/backend/.ruff_cache/
+/backend/data/
+**/__pycache__/
+*.py[cod]
+
+# terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+infra/production/backend.hcl
+infra/production/terraform.tfvars
+crash.log

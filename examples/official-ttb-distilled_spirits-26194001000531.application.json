@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "verification-request-v2",
+  "caseReference": "COLA-26194001000531",
+  "category": "distilled_spirits",
+  "checks": [
+    {
+      "fieldId": "brand_name",
+      "required": true,
+      "expectedValue": "PARADOXX"
+    },
+    {
+      "fieldId": "class_type",
+      "required": true,
+      "expectedValue": "VODKA"
+    },
+    {
+      "fieldId": "alcohol_content",
+      "required": true,
+      "expectedValue": "40"
+    },
+    {
+      "fieldId": "government_warning",
+      "required": true
+    }
+  ],
+  "panels": [
+    {
+      "panelId": "p01",
+      "file": "official-ttb-distilled_spirits-26194001000531.p01.png"
+    },
+    {
+      "panelId": "p02",
+      "file": "official-ttb-distilled_spirits-26194001000531.p02.png"
+    }
+  ],
+  "readerMode": "llm"
+}

@@ -1,0 +1,1124 @@
+{
+  "$defs": {
+    "AdditionalRuleResult": {
+      "additionalProperties": false,
+      "properties": {
+        "automatedStatus": {
+          "$ref": "#/$defs/AutomatedStatus"
+        },
+        "detectedValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Detectedvalue"
+        },
+        "evidenceBlockIds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidenceblockids",
+          "type": "array"
+        },
+        "evidenceQuote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Evidencequote"
+        },
+        "expectedValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expectedvalue"
+        },
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "fieldId": {
+          "title": "Fieldid",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "matchMode": {
+          "default": "literal_phrase",
+          "enum": [
+            "literal_phrase",
+            "text",
+            "regex",
+            "warning"
+          ],
+          "title": "Matchmode",
+          "type": "string"
+        },
+        "reasonCode": {
+          "title": "Reasoncode",
+          "type": "string"
+        },
+        "requiresHumanReview": {
+          "title": "Requireshumanreview",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fieldId",
+        "label",
+        "automatedStatus",
+        "expectedValue",
+        "detectedValue",
+        "evidenceQuote",
+        "reasonCode",
+        "explanation",
+        "requiresHumanReview"
+      ],
+      "title": "AdditionalRuleResult",
+      "type": "object"
+    },
+    "AutomatedStatus": {
+      "enum": [
+        "matches",
+        "discrepancy",
+        "review",
+        "does_not_apply"
+      ],
+      "title": "AutomatedStatus",
+      "type": "string"
+    },
+    "BoundingBox": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "integer"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "title": "Width",
+          "type": "integer"
+        },
+        "x": {
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "BoundingBox",
+      "type": "object"
+    },
+    "FieldKey": {
+      "enum": [
+        "brand_name",
+        "class_type",
+        "alcohol_content",
+        "proof",
+        "government_warning_heading",
+        "government_warning_body"
+      ],
+      "title": "FieldKey",
+      "type": "string"
+    },
+    "LocalizationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptedTokenIds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Acceptedtokenids",
+          "type": "array"
+        },
+        "displayBoxes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/BoundingBox"
+          },
+          "title": "Displayboxes",
+          "type": "array"
+        },
+        "fieldKey": {
+          "$ref": "#/$defs/FieldKey"
+        },
+        "localizationId": {
+          "title": "Localizationid",
+          "type": "string"
+        },
+        "panelId": {
+          "title": "Panelid",
+          "type": "string"
+        },
+        "quote": {
+          "title": "Quote",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "runnerUpSimilarity": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runnerupsimilarity"
+        },
+        "similarity": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Similarity"
+        },
+        "status": {
+          "$ref": "#/$defs/LocationStatus"
+        }
+      },
+      "required": [
+        "localizationId",
+        "fieldKey",
+        "quote",
+        "panelId",
+        "status",
+        "reason"
+      ],
+      "title": "LocalizationResult",
+      "type": "object"
+    },
+    "LocationStatus": {
+      "enum": [
+        "located",
+        "location_ambiguous",
+        "location_unavailable"
+      ],
+      "title": "LocationStatus",
+      "type": "string"
+    },
+    "OcrRun": {
+      "additionalProperties": false,
+      "properties": {
+        "adapterVersion": {
+          "title": "Adapterversion",
+          "type": "string"
+        },
+        "engine": {
+          "title": "Engine",
+          "type": "string"
+        },
+        "engineVersion": {
+          "title": "Engineversion",
+          "type": "string"
+        },
+        "executable": {
+          "title": "Executable",
+          "type": "string"
+        },
+        "exitStatus": {
+          "title": "Exitstatus",
+          "type": "integer"
+        },
+        "languageData": {
+          "title": "Languagedata",
+          "type": "string"
+        },
+        "ocrDurationMs": {
+          "minimum": 0,
+          "title": "Ocrdurationms",
+          "type": "number"
+        },
+        "originalHeight": {
+          "exclusiveMinimum": 0,
+          "title": "Originalheight",
+          "type": "integer"
+        },
+        "originalWidth": {
+          "exclusiveMinimum": 0,
+          "title": "Originalwidth",
+          "type": "integer"
+        },
+        "panelId": {
+          "title": "Panelid",
+          "type": "string"
+        },
+        "preprocessingDurationMs": {
+          "minimum": 0,
+          "title": "Preprocessingdurationms",
+          "type": "number"
+        },
+        "preprocessingVersion": {
+          "title": "Preprocessingversion",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": "ocr-geometry-v1",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "sourceSha256": {
+          "title": "Sourcesha256",
+          "type": "string"
+        },
+        "tokens": {
+          "items": {
+            "$ref": "#/$defs/OcrToken"
+          },
+          "title": "Tokens",
+          "type": "array"
+        },
+        "transcript": {
+          "title": "Transcript",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "adapterVersion",
+        "engine",
+        "engineVersion",
+        "languageData",
+        "executable",
+        "preprocessingVersion",
+        "panelId",
+        "sourceSha256",
+        "originalWidth",
+        "originalHeight",
+        "transcript",
+        "tokens",
+        "exitStatus",
+        "warnings",
+        "preprocessingDurationMs",
+        "ocrDurationMs"
+      ],
+      "title": "OcrRun",
+      "type": "object"
+    },
+    "OcrToken": {
+      "additionalProperties": false,
+      "properties": {
+        "blockId": {
+          "title": "Blockid",
+          "type": "string"
+        },
+        "boundingBox": {
+          "$ref": "#/$defs/BoundingBox"
+        },
+        "confidence": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "lineId": {
+          "title": "Lineid",
+          "type": "string"
+        },
+        "readingOrder": {
+          "minimum": 0,
+          "title": "Readingorder",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "tokenId": {
+          "title": "Tokenid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tokenId",
+        "text",
+        "boundingBox",
+        "confidence",
+        "blockId",
+        "lineId",
+        "readingOrder"
+      ],
+      "title": "OcrToken",
+      "type": "object"
+    },
+    "OverallSummary": {
+      "enum": [
+        "no_automated_discrepancy_detected",
+        "needs_review",
+        "automated_discrepancy_detected"
+      ],
+      "title": "OverallSummary",
+      "type": "string"
+    },
+    "ReviewTask": {
+      "additionalProperties": false,
+      "properties": {
+        "fieldKey": {
+          "$ref": "#/$defs/FieldKey"
+        },
+        "localizationIds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Localizationids",
+          "type": "array"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "reasonCode": {
+          "title": "Reasoncode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fieldKey",
+        "reasonCode",
+        "message"
+      ],
+      "title": "ReviewTask",
+      "type": "object"
+    },
+    "RuleResult": {
+      "additionalProperties": false,
+      "properties": {
+        "applicable": {
+          "title": "Applicable",
+          "type": "boolean"
+        },
+        "automatedStatus": {
+          "$ref": "#/$defs/AutomatedStatus"
+        },
+        "detectedValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Detectedvalue"
+        },
+        "evidenceQuote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Evidencequote"
+        },
+        "expectedValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expectedvalue"
+        },
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "factsConsumed": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Factsconsumed",
+          "type": "array"
+        },
+        "fieldKey": {
+          "$ref": "#/$defs/FieldKey"
+        },
+        "localizationIds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Localizationids",
+          "type": "array"
+        },
+        "reasonCode": {
+          "title": "Reasoncode",
+          "type": "string"
+        },
+        "requiresHumanReview": {
+          "title": "Requireshumanreview",
+          "type": "boolean"
+        },
+        "ruleId": {
+          "title": "Ruleid",
+          "type": "string"
+        },
+        "ruleVersion": {
+          "title": "Ruleversion",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ruleId",
+        "ruleVersion",
+        "fieldKey",
+        "applicable",
+        "automatedStatus",
+        "expectedValue",
+        "detectedValue",
+        "evidenceQuote",
+        "reasonCode",
+        "explanation",
+        "requiresHumanReview"
+      ],
+      "title": "RuleResult",
+      "type": "object"
+    },
+    "StageDuration": {
+      "additionalProperties": false,
+      "properties": {
+        "milliseconds": {
+          "minimum": 0,
+          "title": "Milliseconds",
+          "type": "number"
+        },
+        "stage": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "milliseconds"
+      ],
+      "title": "StageDuration",
+      "type": "object"
+    },
+    "ValidatedPanel": {
+      "additionalProperties": false,
+      "properties": {
+        "appliedTransform": {
+          "title": "Appliedtransform",
+          "type": "string"
+        },
+        "decodedPixelCount": {
+          "exclusiveMinimum": 0,
+          "title": "Decodedpixelcount",
+          "type": "integer"
+        },
+        "detectedMimeType": {
+          "enum": [
+            "image/jpeg",
+            "image/png"
+          ],
+          "title": "Detectedmimetype",
+          "type": "string"
+        },
+        "exifOrientation": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exiforientation"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "integer"
+        },
+        "originalByteCount": {
+          "exclusiveMinimum": 0,
+          "title": "Originalbytecount",
+          "type": "integer"
+        },
+        "panelId": {
+          "title": "Panelid",
+          "type": "string"
+        },
+        "preprocessingVersion": {
+          "title": "Preprocessingversion",
+          "type": "string"
+        },
+        "sourceSha256": {
+          "title": "Sourcesha256",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "panelId",
+        "sourceSha256",
+        "detectedMimeType",
+        "width",
+        "height",
+        "exifOrientation",
+        "appliedTransform",
+        "decodedPixelCount",
+        "originalByteCount",
+        "preprocessingVersion"
+      ],
+      "title": "ValidatedPanel",
+      "type": "object"
+    },
+    "VisionFieldCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "evidenceQuote": {
+          "title": "Evidencequote",
+          "type": "string"
+        },
+        "fieldKey": {
+          "$ref": "#/$defs/FieldKey"
+        },
+        "legibility": {
+          "enum": [
+            "clear",
+            "uncertain",
+            "unreadable"
+          ],
+          "title": "Legibility",
+          "type": "string"
+        },
+        "modelBoundingBox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "normalizedValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Normalizedvalue"
+        },
+        "panelId": {
+          "title": "Panelid",
+          "type": "string"
+        },
+        "rawText": {
+          "title": "Rawtext",
+          "type": "string"
+        },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty"
+        }
+      },
+      "required": [
+        "fieldKey",
+        "rawText",
+        "normalizedValue",
+        "evidenceQuote",
+        "panelId",
+        "legibility"
+      ],
+      "title": "VisionFieldCandidate",
+      "type": "object"
+    },
+    "VisionPanelExtraction": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/VisionFieldCandidate"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "fullText": {
+          "title": "Fulltext",
+          "type": "string"
+        },
+        "observations": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "panelId": {
+          "title": "Panelid",
+          "type": "string"
+        },
+        "textBlocks": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/VisionTextBlock"
+          },
+          "title": "Textblocks",
+          "type": "array"
+        },
+        "warningPresentation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VisionWarningPresentation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "panelId",
+        "fullText"
+      ],
+      "title": "VisionPanelExtraction",
+      "type": "object"
+    },
+    "VisionRun": {
+      "additionalProperties": false,
+      "properties": {
+        "durationMs": {
+          "minimum": 0,
+          "title": "Durationms",
+          "type": "number"
+        },
+        "estimatedCostUsd": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimatedcostusd"
+        },
+        "inputTokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inputtokens"
+        },
+        "outputTokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outputtokens"
+        },
+        "panels": {
+          "items": {
+            "$ref": "#/$defs/VisionPanelExtraction"
+          },
+          "title": "Panels",
+          "type": "array"
+        },
+        "promptVersion": {
+          "title": "Promptversion",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "providerRequestId": {
+          "title": "Providerrequestid",
+          "type": "string"
+        },
+        "rawResponseSha256": {
+          "title": "Rawresponsesha256",
+          "type": "string"
+        },
+        "requestedModel": {
+          "title": "Requestedmodel",
+          "type": "string"
+        },
+        "responseModel": {
+          "title": "Responsemodel",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": "vision-extraction-v1",
+          "title": "Schemaversion",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "promptVersion",
+        "provider",
+        "requestedModel",
+        "responseModel",
+        "providerRequestId",
+        "rawResponseSha256",
+        "panels",
+        "durationMs"
+      ],
+      "title": "VisionRun",
+      "type": "object"
+    },
+    "VisionTextBlock": {
+      "additionalProperties": false,
+      "description": "One literal, positioned text block returned in reading order.",
+      "properties": {
+        "blockId": {
+          "title": "Blockid",
+          "type": "string"
+        },
+        "legibility": {
+          "enum": [
+            "clear",
+            "uncertain",
+            "unreadable"
+          ],
+          "title": "Legibility",
+          "type": "string"
+        },
+        "modelBoundingBox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "readingOrder": {
+          "minimum": 0,
+          "title": "Readingorder",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty"
+        }
+      },
+      "required": [
+        "blockId",
+        "text",
+        "readingOrder",
+        "legibility"
+      ],
+      "title": "VisionTextBlock",
+      "type": "object"
+    },
+    "VisionWarningPresentation": {
+      "additionalProperties": false,
+      "description": "Visual properties that cannot be established by a text transcript alone.",
+      "properties": {
+        "continuousParagraph": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Continuousparagraph"
+        },
+        "headingAllCaps": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Headingallcaps"
+        },
+        "headingOnlyBold": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Headingonlybold"
+        },
+        "legibleContrast": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Legiblecontrast"
+        },
+        "separateAndApart": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Separateandapart"
+        },
+        "textAppearsUnusuallySmall": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Textappearsunusuallysmall"
+        },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty"
+        }
+      },
+      "required": [
+        "headingAllCaps",
+        "headingOnlyBold",
+        "continuousParagraph",
+        "separateAndApart",
+        "legibleContrast",
+        "textAppearsUnusuallySmall"
+      ],
+      "title": "VisionWarningPresentation",
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.treasury.local/analysis-response-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "additionalRuleResults": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/AdditionalRuleResult"
+      },
+      "title": "Additionalruleresults",
+      "type": "array"
+    },
+    "analysisId": {
+      "title": "Analysisid",
+      "type": "string"
+    },
+    "localizations": {
+      "items": {
+        "$ref": "#/$defs/LocalizationResult"
+      },
+      "title": "Localizations",
+      "type": "array"
+    },
+    "mode": {
+      "const": "connected",
+      "title": "Mode",
+      "type": "string"
+    },
+    "ocrRun": {
+      "$ref": "#/$defs/OcrRun"
+    },
+    "ocrRuns": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/OcrRun"
+      },
+      "title": "Ocrruns",
+      "type": "array"
+    },
+    "overallSummary": {
+      "$ref": "#/$defs/OverallSummary"
+    },
+    "panels": {
+      "items": {
+        "$ref": "#/$defs/ValidatedPanel"
+      },
+      "title": "Panels",
+      "type": "array"
+    },
+    "readerMode": {
+      "default": "llm",
+      "enum": [
+        "ocr",
+        "llm"
+      ],
+      "title": "Readermode",
+      "type": "string"
+    },
+    "reviewTasks": {
+      "items": {
+        "$ref": "#/$defs/ReviewTask"
+      },
+      "title": "Reviewtasks",
+      "type": "array"
+    },
+    "ruleResults": {
+      "items": {
+        "$ref": "#/$defs/RuleResult"
+      },
+      "title": "Ruleresults",
+      "type": "array"
+    },
+    "schemaVersion": {
+      "const": "analysis-response-v1",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "stageDurations": {
+      "items": {
+        "$ref": "#/$defs/StageDuration"
+      },
+      "title": "Stagedurations",
+      "type": "array"
+    },
+    "totalDurationMs": {
+      "minimum": 0,
+      "title": "Totaldurationms",
+      "type": "number"
+    },
+    "visionRun": {
+      "$ref": "#/$defs/VisionRun"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "analysisId",
+    "mode",
+    "overallSummary",
+    "panels",
+    "visionRun",
+    "ocrRun",
+    "localizations",
+    "ruleResults",
+    "reviewTasks",
+    "stageDurations",
+    "totalDurationMs"
+  ],
+  "title": "AnalysisResponse",
+  "type": "object"
+}

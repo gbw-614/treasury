@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "verification-request-v2",
+  "caseReference": "COLA-26202001000105",
+  "category": "malt_beverage",
+  "checks": [
+    {
+      "fieldId": "brand_name",
+      "required": true,
+      "expectedValue": "Konrad Graser’s Bamberger Braunbier"
+    },
+    {
+      "fieldId": "class_type",
+      "required": true,
+      "expectedValue": "Historic Brown Lager - BEER"
+    },
+    {
+      "fieldId": "alcohol_content",
+      "required": true,
+      "expectedValue": "5.6"
+    },
+    {
+      "fieldId": "government_warning",
+      "required": true
+    }
+  ],
+  "panels": [
+    {
+      "panelId": "p01",
+      "file": "official-ttb-malt_beverage-26202001000105.p01.jpg"
+    }
+  ],
+  "readerMode": "llm"
+}

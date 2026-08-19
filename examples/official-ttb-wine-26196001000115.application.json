@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "verification-request-v2",
+  "caseReference": "COLA-26196001000115",
+  "category": "wine",
+  "checks": [
+    {
+      "fieldId": "brand_name",
+      "required": true,
+      "expectedValue": "three french hens"
+    },
+    {
+      "fieldId": "class_type",
+      "required": true,
+      "expectedValue": "RED BLEND"
+    },
+    {
+      "fieldId": "alcohol_content",
+      "required": true,
+      "expectedValue": "13.5"
+    },
+    {
+      "fieldId": "government_warning",
+      "required": true
+    }
+  ],
+  "panels": [
+    {
+      "panelId": "p01",
+      "file": "official-ttb-wine-26196001000115.p01.png"
+    },
+    {
+      "panelId": "p02",
+      "file": "official-ttb-wine-26196001000115.p02.png"
+    },
+    {
+      "panelId": "p03",
+      "file": "official-ttb-wine-26196001000115.p03.png"
+    },
+    {
+      "panelId": "p04",
+      "file": "official-ttb-wine-26196001000115.p04.png"
+    }
+  ],
+  "readerMode": "llm"
+}

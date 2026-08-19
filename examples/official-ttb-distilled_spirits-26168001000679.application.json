@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "verification-request-v2",
+  "caseReference": "COLA-26168001000679",
+  "category": "distilled_spirits",
+  "checks": [
+    {
+      "fieldId": "brand_name",
+      "required": true,
+      "expectedValue": "Cygnet"
+    },
+    {
+      "fieldId": "class_type",
+      "required": true,
+      "expectedValue": "Welsh Dry Gin"
+    },
+    {
+      "fieldId": "alcohol_content",
+      "required": true,
+      "expectedValue": "44"
+    },
+    {
+      "fieldId": "government_warning",
+      "required": true
+    }
+  ],
+  "panels": [
+    {
+      "panelId": "p01",
+      "file": "official-ttb-distilled_spirits-26168001000679.p01.png"
+    },
+    {
+      "panelId": "p02",
+      "file": "official-ttb-distilled_spirits-26168001000679.p02.png"
+    }
+  ],
+  "readerMode": "llm"
+}

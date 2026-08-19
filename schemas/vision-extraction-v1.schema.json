@@ -1,0 +1,430 @@
+{
+  "$defs": {
+    "BoundingBox": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "integer"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "title": "Width",
+          "type": "integer"
+        },
+        "x": {
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "BoundingBox",
+      "type": "object"
+    },
+    "FieldKey": {
+      "enum": [
+        "brand_name",
+        "class_type",
+        "alcohol_content",
+        "proof",
+        "government_warning_heading",
+        "government_warning_body"
+      ],
+      "title": "FieldKey",
+      "type": "string"
+    },
+    "VisionFieldCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "evidenceQuote": {
+          "title": "Evidencequote",
+          "type": "string"
+        },
+        "fieldKey": {
+          "$ref": "#/$defs/FieldKey"
+        },
+        "legibility": {
+          "enum": [
+            "clear",
+            "uncertain",
+            "unreadable"
+          ],
+          "title": "Legibility",
+          "type": "string"
+        },
+        "modelBoundingBox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "normalizedValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Normalizedvalue"
+        },
+        "panelId": {
+          "title": "Panelid",
+          "type": "string"
+        },
+        "rawText": {
+          "title": "Rawtext",
+          "type": "string"
+        },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty"
+        }
+      },
+      "required": [
+        "fieldKey",
+        "rawText",
+        "normalizedValue",
+        "evidenceQuote",
+        "panelId",
+        "legibility"
+      ],
+      "title": "VisionFieldCandidate",
+      "type": "object"
+    },
+    "VisionPanelExtraction": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/VisionFieldCandidate"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "fullText": {
+          "title": "Fulltext",
+          "type": "string"
+        },
+        "observations": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "panelId": {
+          "title": "Panelid",
+          "type": "string"
+        },
+        "textBlocks": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/VisionTextBlock"
+          },
+          "title": "Textblocks",
+          "type": "array"
+        },
+        "warningPresentation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VisionWarningPresentation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "panelId",
+        "fullText"
+      ],
+      "title": "VisionPanelExtraction",
+      "type": "object"
+    },
+    "VisionTextBlock": {
+      "additionalProperties": false,
+      "description": "One literal, positioned text block returned in reading order.",
+      "properties": {
+        "blockId": {
+          "title": "Blockid",
+          "type": "string"
+        },
+        "legibility": {
+          "enum": [
+            "clear",
+            "uncertain",
+            "unreadable"
+          ],
+          "title": "Legibility",
+          "type": "string"
+        },
+        "modelBoundingBox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "readingOrder": {
+          "minimum": 0,
+          "title": "Readingorder",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty"
+        }
+      },
+      "required": [
+        "blockId",
+        "text",
+        "readingOrder",
+        "legibility"
+      ],
+      "title": "VisionTextBlock",
+      "type": "object"
+    },
+    "VisionWarningPresentation": {
+      "additionalProperties": false,
+      "description": "Visual properties that cannot be established by a text transcript alone.",
+      "properties": {
+        "continuousParagraph": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Continuousparagraph"
+        },
+        "headingAllCaps": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Headingallcaps"
+        },
+        "headingOnlyBold": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Headingonlybold"
+        },
+        "legibleContrast": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Legiblecontrast"
+        },
+        "separateAndApart": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Separateandapart"
+        },
+        "textAppearsUnusuallySmall": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Textappearsunusuallysmall"
+        },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty"
+        }
+      },
+      "required": [
+        "headingAllCaps",
+        "headingOnlyBold",
+        "continuousParagraph",
+        "separateAndApart",
+        "legibleContrast",
+        "textAppearsUnusuallySmall"
+      ],
+      "title": "VisionWarningPresentation",
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.treasury.local/vision-extraction-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "durationMs": {
+      "minimum": 0,
+      "title": "Durationms",
+      "type": "number"
+    },
+    "estimatedCostUsd": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Estimatedcostusd"
+    },
+    "inputTokens": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Inputtokens"
+    },
+    "outputTokens": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Outputtokens"
+    },
+    "panels": {
+      "items": {
+        "$ref": "#/$defs/VisionPanelExtraction"
+      },
+      "title": "Panels",
+      "type": "array"
+    },
+    "promptVersion": {
+      "title": "Promptversion",
+      "type": "string"
+    },
+    "provider": {
+      "title": "Provider",
+      "type": "string"
+    },
+    "providerRequestId": {
+      "title": "Providerrequestid",
+      "type": "string"
+    },
+    "rawResponseSha256": {
+      "title": "Rawresponsesha256",
+      "type": "string"
+    },
+    "requestedModel": {
+      "title": "Requestedmodel",
+      "type": "string"
+    },
+    "responseModel": {
+      "title": "Responsemodel",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": "vision-extraction-v1",
+      "title": "Schemaversion",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "promptVersion",
+    "provider",
+    "requestedModel",
+    "responseModel",
+    "providerRequestId",
+    "rawResponseSha256",
+    "panels",
+    "durationMs"
+  ],
+  "title": "VisionRun",
+  "type": "object"
+}

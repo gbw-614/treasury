@@ -1,0 +1,297 @@
+{
+  "$defs": {
+    "AdditionalExpectedField": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedText": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Expectedtext",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9_-]{0,59}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 250,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "matchMode": {
+          "const": "literal_phrase",
+          "default": "literal_phrase",
+          "title": "Matchmode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "expectedText"
+      ],
+      "title": "AdditionalExpectedField",
+      "type": "object"
+    },
+    "BeverageCategory": {
+      "enum": [
+        "wine",
+        "distilled_spirits",
+        "malt_beverage"
+      ],
+      "title": "BeverageCategory",
+      "type": "string"
+    },
+    "ExpectedGovernmentWarning": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Body",
+          "type": "string"
+        },
+        "heading": {
+          "maxLength": 250,
+          "minLength": 1,
+          "title": "Heading",
+          "type": "string"
+        }
+      },
+      "required": [
+        "heading",
+        "body"
+      ],
+      "title": "ExpectedGovernmentWarning",
+      "type": "object"
+    },
+    "ExplicitExpectedValues": {
+      "additionalProperties": false,
+      "properties": {
+        "abvPercent": {
+          "anyOf": [
+            {
+              "maximum": 100.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Abvpercent"
+        },
+        "additionalFields": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AdditionalExpectedField"
+          },
+          "title": "Additionalfields",
+          "type": "array"
+        },
+        "brandName": {
+          "anyOf": [
+            {
+              "maxLength": 250,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Brandname"
+        },
+        "classType": {
+          "anyOf": [
+            {
+              "maxLength": 250,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classtype"
+        },
+        "governmentWarning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExpectedGovernmentWarning"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "proof": {
+          "anyOf": [
+            {
+              "maximum": 200.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proof"
+        }
+      },
+      "title": "ExplicitExpectedValues",
+      "type": "object"
+    },
+    "FieldCheck": {
+      "additionalProperties": false,
+      "description": "A case selection from the versioned server-side field library.",
+      "properties": {
+        "expectedValue": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expectedvalue"
+        },
+        "fieldId": {
+          "pattern": "^[a-z][a-z0-9_]{0,59}$",
+          "title": "Fieldid",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fieldId"
+      ],
+      "title": "FieldCheck",
+      "type": "object"
+    },
+    "PanelInput": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "maxLength": 250,
+          "minLength": 1,
+          "title": "File",
+          "type": "string"
+        },
+        "panelId": {
+          "pattern": "^[A-Za-z0-9_-]{1,40}$",
+          "title": "Panelid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "panelId",
+        "file"
+      ],
+      "title": "PanelInput",
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.treasury.local/verification-request-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "caseReference": {
+      "anyOf": [
+        {
+          "maxLength": 250,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Casereference"
+    },
+    "category": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BeverageCategory"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "checks": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/FieldCheck"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "expected": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExplicitExpectedValues"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "panels": {
+      "items": {
+        "$ref": "#/$defs/PanelInput"
+      },
+      "title": "Panels",
+      "type": "array"
+    },
+    "readerMode": {
+      "default": "llm",
+      "enum": [
+        "ocr",
+        "llm"
+      ],
+      "title": "Readermode",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "enum": [
+        "verification-request-v1",
+        "verification-request-v2"
+      ],
+      "title": "Schemaversion",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "panels"
+  ],
+  "title": "AnalysisRequest",
+  "type": "object"
+}

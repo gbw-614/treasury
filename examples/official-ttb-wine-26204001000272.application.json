@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "verification-request-v2",
+  "caseReference": "COLA-26204001000272",
+  "category": "wine",
+  "checks": [
+    {
+      "fieldId": "brand_name",
+      "required": true,
+      "expectedValue": "ANTICA TORINO"
+    },
+    {
+      "fieldId": "class_type",
+      "required": true,
+      "expectedValue": "VERMOUTH di TORINO BIANCO"
+    },
+    {
+      "fieldId": "alcohol_content",
+      "required": true,
+      "expectedValue": "16"
+    },
+    {
+      "fieldId": "government_warning",
+      "required": true
+    }
+  ],
+  "panels": [
+    {
+      "panelId": "p01",
+      "file": "official-ttb-wine-26204001000272.p01.jpg"
+    },
+    {
+      "panelId": "p02",
+      "file": "official-ttb-wine-26204001000272.p02.jpg"
+    }
+  ],
+  "readerMode": "llm"
+}

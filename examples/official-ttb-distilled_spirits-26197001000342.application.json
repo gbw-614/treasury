@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "verification-request-v2",
+  "caseReference": "COLA-26197001000342",
+  "category": "distilled_spirits",
+  "checks": [
+    {
+      "fieldId": "brand_name",
+      "required": true,
+      "expectedValue": "The CHITA"
+    },
+    {
+      "fieldId": "class_type",
+      "required": true,
+      "expectedValue": "Single Grain Japanese Whisky"
+    },
+    {
+      "fieldId": "alcohol_content",
+      "required": true,
+      "expectedValue": "43"
+    },
+    {
+      "fieldId": "proof",
+      "required": true,
+      "expectedValue": "86"
+    },
+    {
+      "fieldId": "government_warning",
+      "required": true
+    }
+  ],
+  "panels": [
+    {
+      "panelId": "p01",
+      "file": "official-ttb-distilled_spirits-26197001000342.p01.png"
+    }
+  ],
+  "readerMode": "llm"
+}
